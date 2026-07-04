@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Jarvis Telegram Service - macOS launchd Configuration
+
+  Installation:
+    cp deploy/com.jarvis.telegram.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.jarvis.telegram.plist
+
+  Commands:
+    launchctl start com.jarvis.telegram     # Start service
+    launchctl stop com.jarvis.telegram      # Stop service
+    launchctl list | grep jarvis            # Check status
+    launchctl unload ~/Library/LaunchAgents/com.jarvis.telegram.plist  # Disable
+
+  Logs:
+    tail -f /Users/jarvis/src/jarvis/logs/jarvis.log
+    tail -f /Users/jarvis/src/jarvis/logs/launchd-stdout.log
+    tail -f /Users/jarvis/src/jarvis/logs/launchd-stderr.log
+-->
+<dict>
+    <!-- Service identifier -->
+    <key>Label</key>
+    <string>com.jarvis.telegram</string>
+
+    <!-- Run the launcher script (handles NVM) -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/jarvis/src/jarvis/deploy/jarvis-launcher.sh</string>
+    </array>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/jarvis/src/jarvis</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>HOME</key>
+        <string>/Users/jarvis</string>
+        <key>PATH</key>
+        <string>/Users/jarvis/.nvm/versions/node/v24.12.0/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Start automatically at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep alive configuration -->
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Restart if process exits with non-zero (crash) -->
+        <key>SuccessfulExit</key>
+        <false/>
+        <!-- Don't restart if load average is too high -->
+        <key>OtherJobEnabled</key>
+        <false/>
+    </dict>
+
+    <!-- Throttle restarts (minimum seconds between restarts) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Log output -->
+    <key>StandardOutPath</key>
+    <string>/Users/jarvis/src/jarvis/logs/launchd-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/jarvis/src/jarvis/logs/launchd-stderr.log</string>
+
+    <!-- Resource limits -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>10240</integer>
+    </dict>
+
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>10240</integer>
+    </dict>
+
+    <!-- Process type (for Activity Monitor grouping) -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Nice value (lower priority to not affect system responsiveness) -->
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

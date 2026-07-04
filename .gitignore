@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.env
+.env.ceo
+mcp-ceo.json
+loop/loop.log
+data/
+data-ceo/
+!data/media/*/.gitkeep
+!data/regression/.gitkeep
+logs/
+*.log
+coverage/
+.venv/
+
+# Progress tracking (temporary)
+progress/
+
+# Self-improvement generated files
+SELF_IMPROVEMENT_SUMMARY.md
+SELF_IMPROVEMENT_IMPLEMENTATION_SUMMARY.md
+loop/
+.claude/.sil-cycle.lock
+
+# Backup files
+*.bak
+
+# Machine-local / runtime state (never track)
+.message-state.json
+.claude/settings.local.json
+.claude/*.local.md
+.claude/agent-memory/

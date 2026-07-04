@@ -1,0 +1,220 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Jarvis Alerting Rules Configuration",
+  "description": "Default alerting rules for monitoring system health and performance",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "name": "High LLM Response Time",
+      "metricName": "llm_response_time_ms",
+      "threshold": 10000,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when LLM response time exceeds 10 seconds. Indicates potential performance issues with the LLM service.",
+      "tags": {}
+    },
+    {
+      "name": "Critical LLM Response Time",
+      "metricName": "llm_response_time_ms",
+      "threshold": 30000,
+      "operator": "gt",
+      "severity": "critical",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when LLM response time exceeds 30 seconds. Requires immediate attention as the service is severely degraded.",
+      "tags": {}
+    },
+    {
+      "name": "High Error Rate",
+      "metricName": "llm_request_error",
+      "threshold": 5,
+      "operator": "gt",
+      "severity": "error",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when more than 5 LLM request errors occur within a 5-minute window. Indicates service instability.",
+      "tags": {}
+    },
+    {
+      "name": "Low Cache Hit Rate",
+      "metricName": "cache_hit_rate",
+      "threshold": 20,
+      "operator": "lt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 900000,
+      "cooldownMs": 1800000,
+      "description": "Alert when cache hit rate falls below 20%. The semantic cache may need tuning or the similarity threshold adjustment.",
+      "tags": {}
+    },
+    {
+      "name": "High Queue Depth",
+      "metricName": "queue_depth",
+      "threshold": 100,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when message queue depth exceeds 100 pending items. Processing may be falling behind.",
+      "tags": {}
+    },
+    {
+      "name": "Critical Queue Depth",
+      "metricName": "queue_depth",
+      "threshold": 500,
+      "operator": "gt",
+      "severity": "critical",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when message queue depth exceeds 500 pending items. System is severely backed up and may require manual intervention.",
+      "tags": {}
+    },
+    {
+      "name": "Low Intent Confidence",
+      "metricName": "intent_confidence",
+      "threshold": 0.3,
+      "operator": "lt",
+      "severity": "info",
+      "enabled": true,
+      "windowMs": 600000,
+      "cooldownMs": 1800000,
+      "description": "Alert when intent classification confidence is consistently below 30%. May indicate need for model retraining or prompt adjustments.",
+      "tags": {}
+    },
+    {
+      "name": "High Escalation Rate",
+      "metricName": "intent_escalation",
+      "threshold": 10,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 900000,
+      "cooldownMs": 1800000,
+      "description": "Alert when more than 10 intent classifications are escalated to Claude within 15 minutes. Ollama may not be handling the load effectively.",
+      "tags": {}
+    },
+    {
+      "name": "High Ollama Response Time",
+      "metricName": "ollama_response_time_ms",
+      "threshold": 5000,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when Ollama response time exceeds 5 seconds. Quick Ollama responses are critical for the two-tier architecture.",
+      "tags": {
+        "model": "ollama"
+      }
+    },
+    {
+      "name": "High Claude Response Time",
+      "metricName": "claude_response_time_ms",
+      "threshold": 15000,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when Claude CLI response time exceeds 15 seconds. May indicate network issues or Claude API performance problems.",
+      "tags": {
+        "model": "claude"
+      }
+    },
+    {
+      "name": "Cache Lookup Performance",
+      "metricName": "cache_lookup_time_ms",
+      "threshold": 1000,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 1800000,
+      "description": "Alert when cache lookup takes longer than 1 second. Cache should be fast; slow lookups defeat the purpose.",
+      "tags": {}
+    },
+    {
+      "name": "High Message Processing Time",
+      "metricName": "message_processing_time_ms",
+      "threshold": 20000,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when end-to-end message processing time exceeds 20 seconds. Users expect timely responses.",
+      "tags": {}
+    },
+    {
+      "name": "High Queue Wait Time",
+      "metricName": "queue_wait_time_ms",
+      "threshold": 5000,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 900000,
+      "description": "Alert when messages wait more than 5 seconds in queue before processing. Queue may be overwhelmed.",
+      "tags": {}
+    },
+    {
+      "name": "High Memory Retrieval Time",
+      "metricName": "memory_retrieval_time_ms",
+      "threshold": 2000,
+      "operator": "gt",
+      "severity": "warning",
+      "enabled": true,
+      "windowMs": 300000,
+      "cooldownMs": 1800000,
+      "description": "Alert when memory/context retrieval takes longer than 2 seconds. May indicate database performance issues.",
+      "tags": {}
+    },
+    {
+      "name": "Low Cache Size Warning",
+      "metricName": "cache_size",
+      "threshold": 10,
+      "operator": "lt",
+      "severity": "info",
+      "enabled": false,
+      "windowMs": 3600000,
+      "cooldownMs": 86400000,
+      "description": "Alert when cache has fewer than 10 entries. Cache may not be building up properly (disabled by default).",
+      "tags": {}
+    }
+  ],
+  "globalSettings": {
+    "defaultWindowMs": 300000,
+    "defaultCooldownMs": 900000,
+    "enabledByDefault": true
+  },
+  "notes": [
+    "windowMs: Time window for metric aggregation (milliseconds)",
+    "cooldownMs: Minimum time between alerts for the same rule (milliseconds)",
+    "operator: gt (greater than), lt (less than), eq (equal), gte (>=), lte (<=)",
+    "severity: info, warning, error, critical",
+    "tags: Optional metric labels for filtering (e.g., {\"model\": \"ollama\"})"
+  ],
+  "recommendations": {
+    "production": {
+      "enableAllCritical": true,
+      "enableAllErrors": true,
+      "enableAllWarnings": true,
+      "enableInfo": false,
+      "adjustThresholds": "Tune thresholds based on your baseline metrics after 1 week of operation"
+    },
+    "development": {
+      "enableAllCritical": true,
+      "enableAllErrors": true,
+      "enableAllWarnings": false,
+      "enableInfo": false,
+      "adjustThresholds": "Use more relaxed thresholds to avoid alert fatigue during development"
+    }
+  }
+}

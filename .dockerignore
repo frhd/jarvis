@@ -1,0 +1,47 @@
+# Dependencies
+node_modules
+
+# Build output (we build in container)
+dist
+
+# Development files
+*.log
+logs/
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+tests/
+coverage/
+*.test.ts
+*.spec.ts
+vitest.config.ts
+
+# Data (mounted as volume)
+data/
+
+# Deploy scripts (not needed in container)
+deploy/
+
+# Other config
+.claude/
+CLAUDE.md
+ecosystem.config.cjs

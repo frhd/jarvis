@@ -1,0 +1,188 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1766336117156,
+      "tag": "0000_slippery_lorna_dane",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1766399799515,
+      "tag": "0001_parallel_veda",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1766401579329,
+      "tag": "0002_plain_jack_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1766489152493,
+      "tag": "0003_memory-system",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1766489200000,
+      "tag": "0004_intent-classification-logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1766489300000,
+      "tag": "0005_semantic-cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1766489400000,
+      "tag": "0006_metrics-system",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1766489500000,
+      "tag": "0007_ab-testing",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1766489600000,
+      "tag": "0008_queue-improvements",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1766489700000,
+      "tag": "0009_security-system",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1766489800000,
+      "tag": "0010_loop-prevention",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1766489900000,
+      "tag": "0011_context-graph",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1766490000000,
+      "tag": "0012_voice-transcription",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1766490100000,
+      "tag": "0013_message-deduplication",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1766490200000,
+      "tag": "0014_messages_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1766490300000,
+      "tag": "0015_add_idempotency_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1766490400000,
+      "tag": "0016_plan-workflow-system",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1771601985000,
+      "tag": "0017_add_preferred_language_to_chats",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1771682603000,
+      "tag": "0018_add_contacts_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1771682615000,
+      "tag": "0019_add_displayname_to_senders",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1772092800000,
+      "tag": "0020_platform_agnostic_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1772179200000,
+      "tag": "0021_memory_unified_refs",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1772265600000,
+      "tag": "0022_therapist_mode_system",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1772352000000,
+      "tag": "0023_message-dedup-unique-index",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1778716800000,
+      "tag": "0024_drop_unused_idempotency_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1779840000000,
+      "tag": "0025_drop_self_improvement_items",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,109 @@
+# Jarvis Telegram Service - Docker Compose Configuration
+#
+# Commands:
+#   docker compose up -d              # Start in background
+#   docker compose down               # Stop
+#   docker compose restart            # Restart
+#   docker compose logs -f jarvis     # Tail logs
+#   docker compose logs --tail=100    # Last 100 lines
+#   docker compose ps                 # Check status
+#   docker compose build              # Rebuild image
+#   docker compose up -d --build      # Rebuild and start
+
+version: '3.8'
+
+services:
+  jarvis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis
+    restart: always
+
+    # Mount volumes for persistence
+    volumes:
+      # Database and media storage
+      - ./data:/app/data
+      # Logs
+      - ./logs:/app/logs
+      # Environment file (read-only)
+      - ./.env:/app/.env:ro
+
+    # Environment variables
+    environment:
+      - NODE_ENV=production
+      - TZ=Europe/Berlin
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('fs').existsSync('/app/data/jarvis.db') || process.exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Network mode (use host for Telegram API access)
+    network_mode: bridge
+
+  # ============================================================================
+  # Whisper Server - Voice Message Transcription
+  # ============================================================================
+  # Uses whisper-asr-webservice (ARM64 compatible) with OpenAI-compatible API
+  # Start with: docker compose up -d whisper
+  # Test with: curl http://localhost:9000/docs
+  # API docs: http://localhost:9000/docs
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: jarvis-whisper
+    ports:
+      - "9000:9000"
+    environment:
+      - ASR_MODEL=base                    # Options: tiny, base, small, medium, large-v2
+      - ASR_ENGINE=faster_whisper         # faster_whisper is more efficient than openai_whisper
+    volumes:
+      - whisper-cache:/root/.cache        # Cache downloaded models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s                  # Model download takes time on first start
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+volumes:
+  whisper-cache:
