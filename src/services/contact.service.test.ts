@@ -53,7 +53,7 @@ describe('ContactService', () => {
       const mockContact: Contact = {
         id: 'test-id',
         senderId: 'sender-1',
-        name: 'Lenn',
+        name: 'Max',
         phoneNumber: '+491761234567',
         category: 'friend' as ContactCategoryType,
         confidence: 80,
@@ -69,7 +69,7 @@ describe('ContactService', () => {
 
       mockContactRepo.findByFuzzyName.mockResolvedValue(mockResult);
 
-      const result = await contactService.findContact('Lenn', 'sender-1');
+      const result = await contactService.findContact('Max', 'sender-1');
 
       expect(result.found).toBe(true);
       expect(result.contact).toEqual(mockContact);
@@ -96,7 +96,7 @@ describe('ContactService', () => {
       const contact1: Contact = {
         id: 'test-id-1',
         senderId: 'sender-1',
-        name: 'Lennart',
+        name: 'Maximilian',
         phoneNumber: '+491761234567',
         category: 'friend' as ContactCategoryType,
         confidence: 80,
@@ -107,7 +107,7 @@ describe('ContactService', () => {
       const contact2: Contact = {
         id: 'test-id-2',
         senderId: 'sender-1',
-        name: 'Lenna',
+        name: 'Maxine',
         phoneNumber: '+491761234567',
         category: 'friend' as ContactCategoryType,
         confidence: 80,
@@ -123,7 +123,7 @@ describe('ContactService', () => {
 
       mockContactRepo.findByFuzzyName.mockResolvedValue(mockResult);
 
-      const result = await contactService.findContact('Lenn', 'sender-1');
+      const result = await contactService.findContact('Max', 'sender-1');
 
       expect(result.found).toBe(true);
       expect(result.contact).toEqual(contact1);
@@ -143,7 +143,7 @@ describe('ContactService', () => {
       const mockContact: Contact = {
         id: 'test-id',
         senderId: 'sender-1',
-        name: 'Lenn',
+        name: 'Max',
         phoneNumber: '+491761234567',
         category: 'friend' as ContactCategoryType,
         confidence: 50,
@@ -157,7 +157,7 @@ describe('ContactService', () => {
 
       const result = await contactService.saveContact({
         senderId: 'sender-1',
-        name: 'Lenn',
+        name: 'Max',
         phoneNumber: '+49 176 123456 78',
         category: 'friend',
         originalInput: '+49 176 123456 78',
@@ -168,7 +168,7 @@ describe('ContactService', () => {
       expect(result.contact).toEqual(mockContact);
       expect(mockContactRepo.upsert).toHaveBeenCalledWith({
         senderId: 'sender-1',
-        name: 'Lenn',
+        name: 'Max',
         phoneNumber: '+49 176 123456 78',
         category: 'friend',
         originalInput: '+49 176 123456 78',
@@ -191,7 +191,7 @@ describe('ContactService', () => {
     it('should return error for missing phone number', async () => {
       const result = await contactService.saveContact({
         senderId: 'sender-1',
-        name: 'Lenn',
+        name: 'Max',
         phoneNumber: '',
       });
 
@@ -214,7 +214,7 @@ describe('ContactService', () => {
         {
           id: 'test-id-1',
           senderId: 'sender-1',
-          name: 'Lenn',
+          name: 'Max',
           phoneNumber: '+49 176 123456 78',
           category: 'friend' as ContactCategoryType,
           confidence: 80,
@@ -238,7 +238,7 @@ describe('ContactService', () => {
       const result = await contactService.buildContextString('sender-1');
 
       expect(result).toContain('Saved Contacts');
-      expect(result).toContain('Lenn (+49 176 123456 78) - Category: friend');
+      expect(result).toContain('Max (+49 176 123456 78) - Category: friend');
       expect(result).toContain('Anna (+49 151 23456789) - Category: family');
     });
   });
@@ -249,7 +249,7 @@ describe('ContactService', () => {
         {
           id: 'test-id-1',
           senderId: 'sender-1',
-          name: 'Lenn',
+          name: 'Max',
           phoneNumber: '+49 176 123456 78',
           category: 'friend' as ContactCategoryType,
           confidence: 80,
@@ -297,7 +297,7 @@ describe('ContactService', () => {
       const mockContact: Contact = {
         id: 'test-id',
         senderId: 'sender-1',
-        name: 'Lenn',
+        name: 'Max',
         phoneNumber: '+49 176 123456 78',
         category: 'friend' as ContactCategoryType,
         confidence: 80,
@@ -307,9 +307,9 @@ describe('ContactService', () => {
 
       const result: any = { found: true, contact: mockContact };
 
-      const formatted = contactService.formatLookupResult(result, 'Lenn');
+      const formatted = contactService.formatLookupResult(result, 'Max');
 
-      expect(formatted).toBe('Found contact: Lenn (+49 176 123456 78)');
+      expect(formatted).toBe('Found contact: Max (+49 176 123456 78)');
     });
 
     it('should format no contact with suggestions', () => {
@@ -319,7 +319,7 @@ describe('ContactService', () => {
           {
             id: 'test-id-1',
             senderId: 'sender-1',
-            name: 'Lennart',
+            name: 'Maximilian',
             phoneNumber: '+49 176 123456 78',
             preferredFormat: '+49 176 123456 78',
             category: 'friend' as ContactCategoryType,
@@ -330,9 +330,9 @@ describe('ContactService', () => {
         ],
       };
 
-      const formatted = contactService.formatLookupResult(result, 'Lenn');
+      const formatted = contactService.formatLookupResult(result, 'Max');
 
-      expect(formatted).toContain('No exact match for "Lenn"');
+      expect(formatted).toContain('No exact match for "Max"');
       expect(formatted).toContain('Similar contacts:');
     });
   });

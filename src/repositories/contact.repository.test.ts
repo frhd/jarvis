@@ -128,7 +128,7 @@ describe('ContactRepository', () => {
   });
 
   describe('Integration scenarios', () => {
-    it('should handle Lenn\'s phone number in various formats', () => {
+    it('should handle Max\'s phone number in various formats', () => {
       const formats = [
         '+4917612345678',    // User provided this
         '+49 17612345678',  // Bot showed this (with space after 49)

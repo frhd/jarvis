@@ -3,7 +3,7 @@ import { resolveRecentMessagesForConversation } from './resolve-conversation-mes
 
 describe('resolveRecentMessagesForConversation', () => {
   const conversationId = 'conv_1';
-  const telegramChatId = '-5263829601';
+  const telegramChatId = '-1234567890';
   const internalChatId = 'hsc_internal_id';
 
   function makeDeps(overrides: {

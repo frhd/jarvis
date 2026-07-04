@@ -626,7 +626,7 @@ describe('ProactiveExecutorService', () => {
 
     it('extracts userName from nickname preference when name not present', async () => {
       vi.mocked(preferenceService.getPreferences).mockResolvedValue([
-        { category: 'context', key: 'nickname', value: 'Fari', senderId: 'sender-1' },
+        { category: 'context', key: 'nickname', value: 'Lex', senderId: 'sender-1' },
       ]);
 
       const job = makeJob({ targetSenderId: 'sender-1' });
@@ -634,7 +634,7 @@ describe('ProactiveExecutorService', () => {
       await executor.executeJob(job);
 
       const context = vi.mocked(generator.generate).mock.calls[0][0];
-      expect(context.userName).toBe('Fari');
+      expect(context.userName).toBe('Lex');
     });
 
     it('includes recent messages based on contextConfig', async () => {

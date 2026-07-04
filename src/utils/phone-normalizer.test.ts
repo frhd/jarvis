@@ -114,13 +114,13 @@ describe('PhoneNormalizer', () => {
 
     it('should extract multiple phone numbers', () => {
       const result = PhoneNormalizer.extractFromText(
-        'Call Lenn at +4917612345678 or Sarah at +49123456789'
+        'Call Max at +4917612345678 or Sarah at +49123456789'
       );
       expect(result.length).toBeGreaterThanOrEqual(1);
     });
 
     it('should handle numbers with spaces', () => {
-      const result = PhoneNormalizer.extractFromText('Lenn\'s number is +49 176 12345678');
+      const result = PhoneNormalizer.extractFromText('Max\'s number is +49 176 12345678');
       expect(result).toContain('+4917612345678');
     });
 

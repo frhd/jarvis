@@ -189,9 +189,9 @@ export const CAPABILITIES: Capability[] = [
     category: CapabilityCategory.AI,
     enabled: () => true,
     examples: [
-      'Save Lenn as a contact',
+      'Save Max as a contact',
       'Find Sarah in my contacts',
-      'Update Lenn\'s phone number',
+      'Update Max\'s phone number',
     ],
   },
 
