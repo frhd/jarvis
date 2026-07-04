@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Current date: 2026-03-04.** When referencing dates in searches or documentation, use appropriate years.
+When referencing dates in searches or documentation, use the current date from your environment context (it is 2026 or later) — not years from training data.
 
 ## Code Quality
 
@@ -31,7 +31,7 @@ Jarvis is a Telegram message ingestion and AI service that captures incoming mes
 ```bash
 # Development
 npm run dev          # Development mode with hot reload (tsx watch)
-npm run build        # Compile TypeScript to dist/
+npm run build        # Compile TS, fix ESM imports, copy migrations to dist/
 npm start            # Run compiled application
 
 # Database
@@ -41,11 +41,11 @@ npm run db:backfill:identity     # Backfill unified identity tables from Telegra
 npm run db:backfill:memory-refs  # Backfill memory userId/conversationId references
 
 # Testing
-npm test             # Run all vitest tests once
+npx vitest run       # Run all vitest tests once (npm test runs vitest in watch mode in a TTY)
 npm run test:watch   # Run tests in watch mode
 npm run test:coverage # Run tests with coverage
 npm run test:ui      # Run tests with Vitest UI
-npx vitest <file>  # Run single test file
+npx vitest run <file>  # Run single test file
 
 # Regression (LLM-as-judge quality validation using Ollama)
 npm run regression                          # Run all 20 scenarios
@@ -68,6 +68,9 @@ npm run logs:error        # Tail jarvis-error.log
 # Docker (alternative deployment)
 npm run prod:docker:up    # Start with docker compose
 npm run prod:docker:down  # Stop docker containers
+
+# launchd (alternative macOS deployment)
+npm run prod:launchd:install / :uninstall / :start / :stop
 ```
 
 ## Architecture
@@ -89,7 +92,7 @@ Telegram Event → Handler → Service → Repository → Database
 **Services** (`src/services/`): Business logic organized by concern:
 - **Core**: Telegram service, media handling, LLM base, identity resolution
 - **AI/LLM**: Embedding, memory, consolidation, Claude client, intent classification, escalation
-- **Routing**: `LLMRouterService` (Ollama vs Claude, agentic tasks, web search, plan intents) and `ContextBuildingService` (RAG context)
+- **Routing**: `LLMRouterService` (Ollama vs Claude, agentic tasks, web search, plan intents), `ContextBuildingService` (RAG context), plus intent routing, anti-loop, and response cache services
 - **Processing**: Extraction coordination, retry coordination, transcription coordination
 - **Reliability**: Retry coordination, circuit breakers, degradation handling, health monitoring, reliability hardening
 - **Monitoring**: Metrics, alerting, analytics, user behavior tracking
@@ -98,13 +101,14 @@ Telegram Event → Handler → Service → Repository → Database
 - **Proactive**: Scheduled proactive messaging (in `src/services/proactive/`)
 - **Plan**: Plan management, execution coordination, progress reporting (for `/plan` command)
 - **Contact**: Contact management and deduplication
+- **Calendar**: Apple Calendar (CalDAV) integration in `src/services/calendar/` (see Calendar Integration below)
 - **CEO**: Scheduled messages and monitoring for Slack CEO bot (in `src/platforms/slack/`)
 
 **Clients** (`src/clients/`): External service wrappers (`LLMClient`, `ClaudeClient`, `EmbeddingClient`)
 
 **LLM Providers** (`src/llm/`): Multi-model abstraction with `ModelRegistry`, `ModelRouter`, `ComplexityScorer` and providers for OpenAI, Anthropic, Gemini, Ollama, LM Studio
 
-**Routing** (`src/services/routing/`): Request routing with `LLMRouterService` (Ollama/Claude routing, agentic tasks, web search, plan intents) and `ContextBuildingService` (RAG context assembly)
+**Routing** (`src/services/routing/`): Request routing with `LLMRouterService` (Ollama/Claude routing, agentic tasks, web search, plan intents), `ContextBuildingService` (RAG context assembly), `IntentRoutingService`, `AntiLoopService`, `ResponseCacheService`, and intent-specific handlers in `routing/handlers/`
 
 **Platforms** (`src/platforms/`): Multi-platform support (Slack CEO bot in `src/platforms/slack/`)
 
@@ -112,7 +116,7 @@ Telegram Event → Handler → Service → Repository → Database
 
 **Repositories** (`src/repositories/`): Database operations using Drizzle ORM
 
-**Workers** (`src/workers/`): Background tasks - retry, priority escalation, DLQ cleanup, cache cleanup, queue cleanup, proactive messaging, memory cleanup
+**Workers** (`src/workers/`): Background tasks - retry, priority escalation, DLQ cleanup, cache cleanup, queue cleanup, proactive messaging, memory cleanup, Telegram connection watchdog
 
 **Processing** (`src/services/processing/`): Coordinators for extraction, retry, and transcription
 
@@ -126,9 +130,9 @@ Telegram Event → Handler → Service → Repository → Database
 
 Services are wired through a two-tier factory pattern to avoid circular dependencies:
 
-**Tier 1 - Factory Modules** (`src/services/factory/`): Create singleton service instances grouped by concern (`core-services.ts`, `ai-services.ts`, `monitoring-services.ts`, `circuit-breakers.ts`, `comic-services.ts`, `command-handler.service.ts`).
+**Tier 1 - Factory Modules** (`src/services/factory/`): Create singleton service instances grouped by concern (`core-services.ts`, `ai-services.ts`, `monitoring-services.ts`, `circuit-breakers.ts`, `comic-services.ts`, `browser-services.ts`, `therapist-services.ts`, `command-handler.service.ts`).
 
-**Tier 2 - Lazy Getters** (`src/services/instances/`): Provide `getXxxService()` lazy accessors (`core.ts`, `ai.ts`, `monitoring.ts`) that resolve instances on first call.
+**Tier 2 - Lazy Getters** (`src/services/instances/`): Provide `getXxxService()` lazy accessors (`core.ts`, `ai.ts`, `monitoring.ts`, `therapist.ts`) that resolve instances on first call.
 
 **Orchestration** (`src/services/index.ts`): Wires cross-cutting dependencies using setter methods (e.g., `setMemoryService()`, `setTranscriptionService()`) and registers health checks, recovery strategies, and failover configurations.
 
@@ -138,7 +142,7 @@ Services are wired through a two-tier factory pattern to avoid circular dependen
 2. Database migrations and connection verification
 3. Service initialization (media, LLM, Telegram, Slack)
 4. Handler registration (message handlers, reconnect-safe)
-5. Worker startup (retry, priority escalation, DLQ cleanup, cache cleanup, queue cleanup, proactive, memory cleanup)
+5. Worker startup (retry, priority escalation, DLQ cleanup, cache cleanup, queue cleanup, proactive, memory cleanup, Telegram watchdog)
 6. Startup health check (warns about unhealthy components)
 7. Graceful shutdown handler (SIGINT/SIGTERM: resets `processing` → `pending`, stops workers, ~10s timeout)
 
@@ -428,6 +432,14 @@ Jarvis supports Playwright-based browser capabilities (opt-in):
 - **MCP Browser Tools** (`BROWSER_MCP_ENABLED`): Gives Claude CLI access to Playwright browser tools in agentic mode
 
 Both features are disabled by default. See `.env.example` for all `BROWSER_*` configuration options.
+
+### Calendar Integration
+
+Apple Calendar (iCloud CalDAV) integration, disabled by default:
+
+- `CalendarService` (`src/services/calendar/calendar.service.ts`) - Reads events and creates them via a propose-then-confirm flow (proposed events expire if unconfirmed); uses an LLM to parse natural-language requests
+- `CalendarClient` (`src/clients/calendar.client.ts`) - CalDAV wrapper (tsdav + ical.js)
+- Config: `CALENDAR_ENABLED`, `CALENDAR_CALDAV_URL`, `CALENDAR_APPLE_ID`, `CALENDAR_APP_PASSWORD` (app-specific password), `CALENDAR_NAME`, `CALENDAR_TIMEZONE` — see `.env.example`
 
 ## Proactive Messaging System
 
