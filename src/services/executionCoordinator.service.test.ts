@@ -93,6 +93,7 @@ describe('ExecutionCoordinatorService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fs.mkdirSync(mockLoopDir, { recursive: true });
     service = new ExecutionCoordinatorService({
       loopDir: mockLoopDir,
       progressIntervalMs: 1000,
