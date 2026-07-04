@@ -1,8 +1,15 @@
 {
-  "name": "telegram-bot",
+  "name": "jarvis",
   "version": "1.0.0",
-  "description": "Telegram bot using grammy",
+  "description": "Personal AI assistant for Telegram — semantic memory, multi-model LLM routing (Ollama/Claude/OpenAI/Gemini), voice transcription, and agentic task execution via Claude Code",
   "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frhd/jarvis.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc && node scripts/fix-esm-imports.js && cp -r src/db/migrations dist/db/",
     "start": "node dist/index.js",
@@ -36,8 +43,15 @@
   },
   "keywords": [
     "telegram",
-    "bot",
-    "grammy"
+    "ai-assistant",
+    "llm",
+    "claude",
+    "ollama",
+    "rag",
+    "semantic-memory",
+    "sqlite",
+    "typescript",
+    "agentic"
   ],
   "license": "MIT",
   "type": "module",
