@@ -4,6 +4,9 @@ import { queue } from '../db/schema';
 import { QueueItem, QueueStatus } from '../types';
 import { nanoid } from 'nanoid';
 
+/** Error recorded on queue items reset to pending because a graceful shutdown interrupted their processing. */
+const SHUTDOWN_INTERRUPT_ERROR = 'Interrupted by graceful shutdown';
+
 export class QueueRepository {
   /**
    * Enqueue a message for processing.
@@ -376,10 +379,29 @@ export class QueueRepository {
       .where(
         and(
           eq(queue.status, 'processing'),
-          lte(queue.createdAt, cutoffTime)
+          this.stuckSinceCutoff(cutoffTime)
         )
       )
       .orderBy(asc(queue.createdAt));
+  }
+
+  /**
+   * Build the "processing for too long" predicate for stuck-message detection.
+   *
+   * Stuck-ness is judged from when processing actually started (`processingStartedAt`,
+   * set by markProcessing), NOT from `createdAt` — a message that waited in a backlog
+   * before being picked up must not be treated as stuck the instant it starts processing.
+   * Legacy rows written before processingStartedAt existed have it null, so fall back
+   * to createdAt for those defensively.
+   */
+  private stuckSinceCutoff(cutoffTime: Date) {
+    return or(
+      lte(queue.processingStartedAt, cutoffTime),
+      and(
+        isNull(queue.processingStartedAt),
+        lte(queue.createdAt, cutoffTime)
+      )
+    );
   }
 
   /**
@@ -457,7 +479,7 @@ export class QueueRepository {
       .where(
         and(
           eq(queue.status, 'processing'),
-          lte(queue.createdAt, cutoffTime),
+          this.stuckSinceCutoff(cutoffTime),
           sql`${queue.attempts} < ${maxAttempts}`
         )
       )
@@ -470,29 +492,24 @@ export class QueueRepository {
    * @returns Number of messages reset
    */
   async resetAllProcessingForShutdown(): Promise<number> {
-    const processingMessages = await db
-      .select()
-      .from(queue)
+    // Single batched UPDATE so shutdown completes within the registry's grace window.
+    // A per-row loop of awaited updates can be abandoned mid-flight (handlers are
+    // dropped after ~3s), leaving rows stuck in 'processing'.
+    // nextRetryAt = now schedules immediate retry on restart; processingStartedAt is
+    // cleared so a subsequent pickup gets a fresh start time.
+    const now = new Date();
+    const result = await db
+      .update(queue)
+      .set({
+        status: 'pending',
+        nextRetryAt: now,
+        lastError: SHUTDOWN_INTERRUPT_ERROR,
+        processingStartedAt: null,
+      })
       .where(eq(queue.status, 'processing'));
 
-    if (processingMessages.length === 0) {
-      return 0;
-    }
-
-    // Reset each message to pending with nextRetryAt = now for immediate retry on restart
-    const now = new Date();
-    for (const msg of processingMessages) {
-      await db
-        .update(queue)
-        .set({
-          status: 'pending',
-          nextRetryAt: now,
-          lastError: 'Interrupted by graceful shutdown',
-        })
-        .where(eq(queue.id, msg.id));
-    }
-
-    return processingMessages.length;
+    // better-sqlite3 update returns a RunResult; use .changes for the affected count.
+    return result.changes;
   }
 
   async getProcessingMessages(): Promise<QueueItem[]> {
@@ -523,7 +540,7 @@ export class QueueRepository {
       .where(
         and(
           eq(queue.status, 'processing'),
-          lte(queue.createdAt, cutoffTime)
+          this.stuckSinceCutoff(cutoffTime)
         )
       )
       .orderBy(asc(queue.createdAt));

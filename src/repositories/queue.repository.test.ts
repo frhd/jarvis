@@ -712,6 +712,96 @@ async function runTests() {
     assertEqual(stuck[0].id, item1.id);
   });
 
+  // --- Bug 1: stuck detection must key on processingStartedAt, not createdAt ---
+
+  const TEN_MINUTES_MS = 10 * 60 * 1000;
+  const STUCK_THRESHOLD_MS = 5000;
+
+  await test('getStuckProcessingMessages: does NOT flag a freshly picked-up backlog message (Bug 1)', async () => {
+    await cleanupTestData();
+    testData = await setupTestData();
+    const messageId = await createTestMessage(testData.chatId, testData.senderId);
+
+    const item = await repo.enqueue(messageId);
+
+    // Simulate a long backlog wait: createdAt far in the past...
+    const tenMinutesAgo = new Date(Date.now() - TEN_MINUTES_MS);
+    await db.update(queue).set({ createdAt: tenMinutesAgo }).where(sql`${queue.id} = ${item.id}`);
+
+    // ...but processing only just started now.
+    await repo.markProcessing(item.id);
+
+    // Old createdAt would wrongly flag it; recent processingStartedAt must not.
+    const stuck = await repo.getStuckProcessingMessages(STUCK_THRESHOLD_MS);
+    assertEqual(stuck.length, 0, 'Freshly picked-up message must not be considered stuck');
+  });
+
+  await test('getStuckProcessingMessages: flags a message whose processing started long ago (Bug 1)', async () => {
+    await cleanupTestData();
+    testData = await setupTestData();
+    const messageId = await createTestMessage(testData.chatId, testData.senderId);
+
+    const item = await repo.enqueue(messageId);
+    await repo.markProcessing(item.id);
+
+    // Backdate processingStartedAt to simulate a crash mid-processing.
+    const tenMinutesAgo = new Date(Date.now() - TEN_MINUTES_MS);
+    await db.update(queue).set({ processingStartedAt: tenMinutesAgo }).where(sql`${queue.id} = ${item.id}`);
+
+    const stuck = await repo.getStuckProcessingMessages(STUCK_THRESHOLD_MS);
+    assertEqual(stuck.length, 1, 'Message processing for 10m must be stuck');
+    assertEqual(stuck[0].id, item.id);
+  });
+
+  await test('getStuckProcessingMessages: falls back to createdAt for legacy null processingStartedAt (Bug 1)', async () => {
+    await cleanupTestData();
+    testData = await setupTestData();
+    const messageId = await createTestMessage(testData.chatId, testData.senderId);
+
+    const item = await repo.enqueue(messageId);
+    await repo.markProcessing(item.id);
+
+    // Legacy row: no processingStartedAt recorded, old createdAt.
+    const tenMinutesAgo = new Date(Date.now() - TEN_MINUTES_MS);
+    await db
+      .update(queue)
+      .set({ processingStartedAt: null, createdAt: tenMinutesAgo })
+      .where(sql`${queue.id} = ${item.id}`);
+
+    const stuck = await repo.getStuckProcessingMessages(STUCK_THRESHOLD_MS);
+    assertEqual(stuck.length, 1, 'Legacy null row must fall back to createdAt');
+    assertEqual(stuck[0].id, item.id);
+  });
+
+  await test('getStuckMessagesForRetry: does NOT reset a freshly picked-up backlog message (Bug 1)', async () => {
+    await cleanupTestData();
+    testData = await setupTestData();
+    const messageId = await createTestMessage(testData.chatId, testData.senderId);
+
+    const item = await repo.enqueue(messageId);
+    const tenMinutesAgo = new Date(Date.now() - TEN_MINUTES_MS);
+    await db.update(queue).set({ createdAt: tenMinutesAgo }).where(sql`${queue.id} = ${item.id}`);
+    await repo.markProcessing(item.id);
+
+    const stuck = await repo.getStuckMessagesForRetry(STUCK_THRESHOLD_MS, 3);
+    assertEqual(stuck.length, 0, 'Actively processing message must not be eligible for reset');
+  });
+
+  await test('getStuckMessagesForRetry: returns a message whose processing started long ago (Bug 1)', async () => {
+    await cleanupTestData();
+    testData = await setupTestData();
+    const messageId = await createTestMessage(testData.chatId, testData.senderId);
+
+    const item = await repo.enqueue(messageId);
+    await repo.markProcessing(item.id);
+    const tenMinutesAgo = new Date(Date.now() - TEN_MINUTES_MS);
+    await db.update(queue).set({ processingStartedAt: tenMinutesAgo }).where(sql`${queue.id} = ${item.id}`);
+
+    const stuck = await repo.getStuckMessagesForRetry(STUCK_THRESHOLD_MS, 3);
+    assertEqual(stuck.length, 1, 'Genuinely stuck message must be eligible for reset');
+    assertEqual(stuck[0].id, item.id);
+  });
+
   await test('resetStuckForRetry: resets processing to pending and increments attempts', async () => {
     await cleanupTestData();
     testData = await setupTestData();
@@ -806,7 +896,7 @@ async function runTests() {
 
     const count = await repo.resetAllProcessingForShutdown();
 
-    assertEqual(count, 2, 'Should reset both processing messages');
+    assertEqual(count, 2, 'Should reset both processing messages (via RunResult.changes)');
 
     const reset1 = await repo.getById(item1.id);
     const reset2 = await repo.getById(item2.id);
@@ -815,6 +905,23 @@ async function runTests() {
     assertEqual(reset2!.status, 'pending');
     assertEqual(reset1!.lastError, 'Interrupted by graceful shutdown');
     assertEqual(reset2!.lastError, 'Interrupted by graceful shutdown');
+    // Batched reset clears processingStartedAt so a fresh pickup gets a new start time.
+    assertNull(reset1!.processingStartedAt, 'processingStartedAt should be cleared on reset');
+    assertNull(reset2!.processingStartedAt, 'processingStartedAt should be cleared on reset');
+    assertNotNull(reset1!.nextRetryAt, 'nextRetryAt should be set for immediate retry');
+  });
+
+  await test('resetAllProcessingForShutdown: returns 0 when nothing is processing', async () => {
+    await cleanupTestData();
+    testData = await setupTestData();
+
+    // Only pending items present - none should be touched.
+    const messageId = await createTestMessage(testData.chatId, testData.senderId);
+    await repo.enqueue(messageId);
+
+    const count = await repo.resetAllProcessingForShutdown();
+
+    assertEqual(count, 0, 'Should return 0 when no processing messages exist');
   });
 
   await test('getProcessingMessages: returns all processing messages', async () => {
