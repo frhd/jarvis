@@ -27,6 +27,16 @@ interface ResolvedSender {
   phone?: string;
 }
 
+/** Options for ingestMessage */
+export interface IngestMessageOptions {
+  /**
+   * Concurrency gate applied to the expensive processing stage only
+   * (LLM/whisper). Ingest + enqueue always run immediately so persistence is
+   * never delayed behind other messages' processing.
+   */
+  processingGate?: (fn: () => Promise<void>) => Promise<void>;
+}
+
 /** Window for tracking recently ingested telegram message IDs to catch TDLib duplicate events */
 const TELEGRAM_ID_DEDUP_WINDOW_MS = 120_000;
 /** Maximum entries in the telegramMessageId dedup tracker */
@@ -58,7 +68,11 @@ export class IngestionService {
     );
   }
 
-  async ingestMessage(client: TelegramClient, event: NewMessageEvent): Promise<void> {
+  async ingestMessage(
+    client: TelegramClient,
+    event: NewMessageEvent,
+    options?: IngestMessageOptions
+  ): Promise<void> {
     try {
       const message = event.message;
 
@@ -241,7 +255,11 @@ export class IngestionService {
         priority: filterCheck.priority,
       });
 
-      await this.processImmediately(queueItem, userId, conversationId);
+      // The gate (when provided) bounds only this expensive stage — the message
+      // is already persisted and enqueued above, so a full pipeline never
+      // delays ingestion of subsequent messages.
+      const runProcessing = () => this.processImmediately(queueItem, userId, conversationId);
+      await (options?.processingGate ? options.processingGate(runProcessing) : runProcessing());
     } catch (error) {
       // Log detailed error information for debugging
       const errorDetails = {
