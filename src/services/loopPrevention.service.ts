@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { LLMClient, ChatMessage } from '../clients/llm.client.js';
+import { LLMClient, ChatMessage, LLMResponse } from '../clients/llm.client.js';
 import {
   LoopPatternRepository,
   LoopPattern,
@@ -51,6 +51,34 @@ export interface FrustrationMetrics {
 
 export type LoopType = LoopPattern['loopType'];
 
+/**
+ * Dedicated short timeout for the loop-detection LLM call.
+ *
+ * This call sits on the hot response path: every incoming message can trigger
+ * it, so it must never inherit the LLM client's long default (60s) timeout.
+ * When the model is slow we would rather skip the LLM check (fail open on the
+ * heuristics) than block the user for a minute.
+ */
+export const LOOP_DETECTION_LLM_TIMEOUT_MS = 8_000;
+
+/**
+ * Number of consecutive LLM loop-detection failures/timeouts that trip the
+ * internal circuit breaker.
+ */
+export const LOOP_DETECTION_FAILURE_THRESHOLD = 3;
+
+/**
+ * How long the loop-detection circuit breaker stays open (LLM check skipped)
+ * before it probes the LLM again.
+ */
+export const LOOP_DETECTION_BREAKER_COOLDOWN_MS = 120_000;
+
+/**
+ * Minimum model-reported confidence required to treat an LLM-detected pattern
+ * as a genuine loop.
+ */
+export const LLM_LOOP_CONFIDENCE_THRESHOLD = 0.6;
+
 const DEFAULT_LOOP_PATTERNS: Array<{
   type: LoopType;
   keywords: string[];
@@ -89,6 +117,13 @@ export class LoopPreventionService {
   private patternCache: Map<string, LoopPattern> = new Map();
   private lastCacheUpdate: number = 0;
   private cacheTTL: number = 5 * 60 * 1000; // 5 minutes
+
+  // Internal circuit breaker for the LLM loop-detection step. Protects the hot
+  // response path from a slow/failing model: after repeated failures the LLM
+  // check is skipped for a cooldown window (heuristic checks still run).
+  private loopDetectionFailureCount = 0;
+  private loopDetectionBreakerOpenUntil = 0;
+  private llmRequestCounter = 0;
 
   constructor(llmClient: LLMClient, repository: LoopPatternRepository) {
     this.llmClient = llmClient;
@@ -389,12 +424,19 @@ export class LoopPreventionService {
   private async detectNewLoop(
     pattern: ConversationPattern
   ): Promise<LoopDetectionResult> {
-    try {
-      const conversationText = pattern.messageTexts
-        .map((text, idx) => `${pattern.messageRoles[idx]}: ${text}`)
-        .join('\n');
+    const NO_LOOP: LoopDetectionResult = { detected: false, confidence: 0 };
 
-      const prompt = `Analyze this conversation for repetitive patterns or loops:
+    // Circuit breaker: while open, skip the LLM step entirely (fail open).
+    // The cheaper heuristic checks in detectLoop() have already run.
+    if (this.isLoopDetectionBreakerOpen()) {
+      return NO_LOOP;
+    }
+
+    const conversationText = pattern.messageTexts
+      .map((text, idx) => `${pattern.messageRoles[idx]}: ${text}`)
+      .join('\n');
+
+    const prompt = `Analyze this conversation for repetitive patterns or loops:
 
 ${conversationText}
 
@@ -412,24 +454,34 @@ Respond with JSON:
   "resolutionStrategy": "description of how to break the loop"
 }`;
 
-      const messages: ChatMessage[] = [
-        { role: 'system', content: 'You are an expert at detecting conversation patterns.' },
-        { role: 'user', content: prompt },
-      ];
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'You are an expert at detecting conversation patterns.' },
+      { role: 'user', content: prompt },
+    ];
 
-      const response = await this.llmClient.chat(messages, undefined, {
-        maxTokens: appConfig.llm.extractionMaxTokens,
+    let response: LLMResponse;
+    try {
+      response = await this.runLoopDetectionLLM(messages);
+      this.recordLoopDetectionSuccess();
+    } catch (error) {
+      this.recordLoopDetectionFailure();
+      logger.error('[LoopPrevention] LLM loop detection failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
+      return NO_LOOP;
+    }
 
-      // Parse JSON response
+    // Parse JSON response (a parse failure is fail-open but does not count
+    // against the breaker — the model responded, it was just malformed).
+    try {
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        return { detected: false, confidence: 0 };
+        return NO_LOOP;
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
 
-      if (parsed.isLoop && parsed.confidence >= 0.6) {
+      if (parsed.isLoop && parsed.confidence >= LLM_LOOP_CONFIDENCE_THRESHOLD) {
         return {
           detected: true,
           loopType: parsed.loopType || 'custom',
@@ -438,12 +490,97 @@ Respond with JSON:
         };
       }
 
-      return { detected: false, confidence: 0 };
+      return NO_LOOP;
     } catch (error) {
-      logger.error('[LoopPrevention] LLM loop detection failed', {
+      logger.error('[LoopPrevention] LLM loop detection response parse failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      return { detected: false, confidence: 0 };
+      return NO_LOOP;
+    }
+  }
+
+  /**
+   * Run the loop-detection LLM call with a short dedicated timeout.
+   *
+   * The LLM client only exposes a fixed per-instance timeout, so we enforce a
+   * tighter one here: race the request against a timer that aborts the
+   * underlying request (via cancelRequest) and rejects, keeping this off the
+   * critical response path for at most LOOP_DETECTION_LLM_TIMEOUT_MS.
+   */
+  private async runLoopDetectionLLM(messages: ChatMessage[]): Promise<LLMResponse> {
+    const requestId = `loop-detection-${++this.llmRequestCounter}`;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        this.llmClient.cancelRequest(requestId);
+        reject(
+          new Error(
+            `Loop detection LLM request timed out after ${LOOP_DETECTION_LLM_TIMEOUT_MS}ms`
+          )
+        );
+      }, LOOP_DETECTION_LLM_TIMEOUT_MS);
+    });
+
+    try {
+      return await Promise.race([
+        this.llmClient.chat(messages, requestId, {
+          maxTokens: appConfig.llm.extractionMaxTokens,
+        }),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
+  /**
+   * Whether the LLM loop-detection breaker is currently open. When the cooldown
+   * has elapsed the breaker is closed and a fresh probe is allowed through.
+   */
+  private isLoopDetectionBreakerOpen(): boolean {
+    if (this.loopDetectionBreakerOpenUntil === 0) {
+      return false;
+    }
+
+    if (Date.now() >= this.loopDetectionBreakerOpenUntil) {
+      // Cooldown elapsed — close the breaker and allow one probe.
+      this.loopDetectionBreakerOpenUntil = 0;
+      this.loopDetectionFailureCount = 0;
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Record a successful LLM loop-detection call, resetting breaker state.
+   */
+  private recordLoopDetectionSuccess(): void {
+    this.loopDetectionFailureCount = 0;
+    this.loopDetectionBreakerOpenUntil = 0;
+  }
+
+  /**
+   * Record a failed/timed-out LLM loop-detection call. Trips the breaker (once)
+   * after LOOP_DETECTION_FAILURE_THRESHOLD consecutive failures.
+   */
+  private recordLoopDetectionFailure(): void {
+    this.loopDetectionFailureCount += 1;
+
+    if (this.loopDetectionFailureCount >= LOOP_DETECTION_FAILURE_THRESHOLD) {
+      this.loopDetectionBreakerOpenUntil = Date.now() + LOOP_DETECTION_BREAKER_COOLDOWN_MS;
+      // Logged once per trip: while the breaker is open no further LLM calls
+      // (and thus no further failures) occur until the cooldown elapses.
+      logger.warn(
+        '[LoopPrevention] LLM loop detection circuit breaker tripped — skipping LLM checks during cooldown',
+        {
+          failureCount: this.loopDetectionFailureCount,
+          cooldownMs: LOOP_DETECTION_BREAKER_COOLDOWN_MS,
+        }
+      );
     }
   }
 
