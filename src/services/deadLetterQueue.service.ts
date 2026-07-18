@@ -8,7 +8,27 @@ import { ChatRepository } from '../repositories/chat.repository';
 import { ErrorRecord, DLQStats, Message, Chat } from '../types';
 import { logger } from '../utils/logger';
 
+/**
+ * Maximum number of entries the dead letter queue is allowed to retain.
+ *
+ * Age-based retention alone cannot bound the DLQ when a systematic failure
+ * floods it with fresh entries faster than the retention window expires.
+ * This size cap guarantees an upper bound: when exceeded, the OLDEST entries
+ * beyond the cap are trimmed, keeping the newest `DLQ_MAX_ENTRIES`.
+ */
+export const DLQ_MAX_ENTRIES = 10_000;
+
+/**
+ * How often the opportunistic on-insert trim actually runs, expressed as
+ * "trim after every Nth insert". Running the (relatively expensive) trim on
+ * every insert would be wasteful, so it is sampled. The periodic cleanup
+ * worker remains the authoritative enforcement path.
+ */
+export const DLQ_TRIM_INSERT_SAMPLE_INTERVAL = 100;
+
 export class DeadLetterQueueService {
+  /** Counts inserts since the last opportunistic trim (see sample interval). */
+  private insertsSinceLastTrim = 0;
   constructor(
     private dlqRepository: DeadLetterQueueRepository,
     private queueRepository: QueueRepository,
@@ -62,6 +82,21 @@ export class DeadLetterQueueService {
         dlqItemId: dlqItem.id,
         messageId: queueItem.messageId,
       });
+
+      // Opportunistically enforce the size cap. Sampled so we don't run the
+      // trim on every insert, and best-effort so a trim failure never blocks
+      // moving the item to the DLQ.
+      this.insertsSinceLastTrim++;
+      if (this.insertsSinceLastTrim >= DLQ_TRIM_INSERT_SAMPLE_INTERVAL) {
+        this.insertsSinceLastTrim = 0;
+        try {
+          await this.trimToMaxSize();
+        } catch (trimError) {
+          logger.warn('[DLQ] Opportunistic trim failed after insert', {
+            error: trimError instanceof Error ? trimError.message : 'Unknown error',
+          });
+        }
+      }
 
       return dlqItem;
     } catch (error) {
@@ -241,6 +276,25 @@ export class DeadLetterQueueService {
     logger.info('[DLQ] Purge complete', { purgedCount });
 
     return purgedCount;
+  }
+
+  /**
+   * Enforce the DLQ size cap by trimming the oldest entries beyond the cap.
+   *
+   * Keeps the newest `maxEntries` items and deletes the rest. Returns the
+   * number of items trimmed (0 when the queue is within the cap).
+   */
+  async trimToMaxSize(maxEntries: number = DLQ_MAX_ENTRIES): Promise<number> {
+    const trimmedCount = await this.dlqRepository.trimToMaxEntries(maxEntries);
+
+    if (trimmedCount > 0) {
+      logger.info('[DLQ] Trimmed dead letter items over size cap', {
+        maxEntries,
+        trimmedCount,
+      });
+    }
+
+    return trimmedCount;
   }
 
   /**

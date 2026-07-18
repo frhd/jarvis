@@ -1,4 +1,4 @@
-import { eq, sql, desc, lt } from 'drizzle-orm';
+import { eq, sql, desc, lt, notInArray } from 'drizzle-orm';
 import { db } from '../db/client';
 import { deadLetterQueue } from '../db/schema';
 import { ErrorRecord, DeadLetterItem, NewDeadLetterItem } from '../types';
@@ -165,6 +165,35 @@ export class DeadLetterQueueRepository extends BaseRepository<
     const result = await db
       .delete(this.table)
       .where(lt(this.table.createdAt, cutoffTime))
+      .returning();
+
+    return result.length;
+  }
+
+  /**
+   * Trim the dead letter queue to a maximum number of entries.
+   *
+   * Keeps the newest `maxEntries` items (by createdAt) and deletes the
+   * oldest ones beyond the cap. This bounds DLQ growth when a systematic
+   * failure floods it faster than age-based retention can reclaim.
+   *
+   * Returns the number of items deleted (0 if the cap is not exceeded).
+   */
+  async trimToMaxEntries(maxEntries: number): Promise<number> {
+    if (maxEntries < 0) {
+      return 0;
+    }
+
+    // Subquery selecting the ids of the newest `maxEntries` items to keep.
+    const keepIds = db
+      .select({ id: this.table.id })
+      .from(this.table)
+      .orderBy(desc(this.table.createdAt))
+      .limit(maxEntries);
+
+    const result = await db
+      .delete(this.table)
+      .where(notInArray(this.table.id, keepIds))
       .returning();
 
     return result.length;
