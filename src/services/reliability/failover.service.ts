@@ -8,6 +8,7 @@
 import { EventEmitter } from 'events';
 import { nanoid } from 'nanoid';
 import { createLogger } from '../../utils/logger';
+import { computeBackoffDelayMs } from '../../utils/backoff';
 import type { HealthStatus } from '../health.service';
 
 const logger = createLogger('FailoverService');
@@ -220,7 +221,16 @@ export class FailoverService extends EventEmitter {
         for (let attempt = 1; attempt <= fallback.maxAttempts; attempt++) {
           try {
             if (fallback.delayMs > 0 && attempt > 1) {
-              await this.delay(fallback.delayMs * attempt);
+              // Linear backoff: delayMs * attempt (no jitter, no cap).
+              await this.delay(
+                computeBackoffDelayMs(attempt, {
+                  baseDelayMs: fallback.delayMs,
+                  maxDelayMs: Number.POSITIVE_INFINITY,
+                  growth: 'linear',
+                  attemptOffset: 0,
+                  jitterFactor: 0,
+                })
+              );
             }
 
             let result: T;

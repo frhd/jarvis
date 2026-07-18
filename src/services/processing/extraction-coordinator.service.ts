@@ -18,6 +18,10 @@ import { UserPreferenceService } from '../userPreference.service.js';
 import { MessageRepository } from '../../repositories/message.repository.js';
 import { logger } from '../../utils/logger.js';
 import { isOllamaOverloaded, getOllamaActiveRequests } from '../../utils/ollama-load-tracker.js';
+import { computeBackoffDelayMs, DEFAULT_BACKOFF_MULTIPLIER } from '../../utils/backoff.js';
+
+/** One-sided jitter added to extraction retry delays, as a fraction of the grown delay. */
+const EXTRACTION_RETRY_JITTER_FACTOR = 0.2;
 
 export interface ExtractionResult {
   memoriesExtracted: number;
@@ -77,12 +81,23 @@ export class ExtractionCoordinatorService {
   }
 
   /**
-   * Calculate exponential backoff delay with jitter
+   * Calculate exponential backoff delay with jitter.
+   *
+   * `attempt` is 0-based here (the retry loop starts at 0), so the exponent is
+   * `attempt` directly. Delegates to the shared backoff utility while preserving
+   * the original formula: baseDelay * 2^attempt plus one-sided jitter of up to
+   * 20% of the grown delay, capped at maxDelayMs.
    */
   private calculateBackoffDelay(attempt: number): number {
-    const exponentialDelay = this.config.baseDelayMs * Math.pow(2, attempt);
-    const jitter = Math.random() * 0.2 * exponentialDelay; // ±10% jitter
-    return Math.min(exponentialDelay + jitter, this.config.maxDelayMs);
+    return computeBackoffDelayMs(attempt, {
+      baseDelayMs: this.config.baseDelayMs,
+      maxDelayMs: this.config.maxDelayMs,
+      multiplier: DEFAULT_BACKOFF_MULTIPLIER,
+      attemptOffset: 0,
+      jitterFactor: EXTRACTION_RETRY_JITTER_FACTOR,
+      jitterMode: 'upward',
+      jitterBasis: 'delay',
+    });
   }
 
   /**

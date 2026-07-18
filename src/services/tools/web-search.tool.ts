@@ -1,6 +1,10 @@
 import { search, SearchResults, SearchResult, SafeSearchType } from 'duck-duck-scrape';
 import { logger } from '../../utils/logger.js';
 import { isWebSearchEnabled } from '../../config/feature-flags.js';
+import { computeBackoffDelayMs, DEFAULT_BACKOFF_MULTIPLIER } from '../../utils/backoff.js';
+
+/** One-sided jitter added to web-search retry delays, as a fraction of the base delay (25%). */
+const WEB_SEARCH_RETRY_JITTER_FACTOR = 0.25;
 
 export interface WebSearchResult {
   title: string;
@@ -148,14 +152,21 @@ export class WebSearchTool {
   }
 
   /**
-   * Calculate delay with exponential backoff and jitter
+   * Calculate delay with exponential backoff and jitter.
+   *
+   * Uses the shared backoff utility: baseDelay * 2^(attempt-1) plus one-sided
+   * jitter of up to 25% of the base delay, capped at retryMaxDelayMs.
    */
   private calculateRetryDelay(attempt: number): number {
-    const baseDelay = this.options.retryBaseDelayMs;
-    const maxDelay = this.options.retryMaxDelayMs;
-    const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
-    const jitter = Math.random() * baseDelay * 0.25; // 25% jitter
-    return Math.min(exponentialDelay + jitter, maxDelay);
+    return computeBackoffDelayMs(attempt, {
+      baseDelayMs: this.options.retryBaseDelayMs,
+      maxDelayMs: this.options.retryMaxDelayMs,
+      multiplier: DEFAULT_BACKOFF_MULTIPLIER,
+      attemptOffset: 1,
+      jitterFactor: WEB_SEARCH_RETRY_JITTER_FACTOR,
+      jitterMode: 'upward',
+      jitterBasis: 'base',
+    });
   }
 
   /**

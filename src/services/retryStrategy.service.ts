@@ -1,5 +1,9 @@
 import { RetryConfig, DEFAULT_RETRY_CONFIG } from '../types/queue.types';
 import { logger } from '../utils/logger';
+import { computeBackoffDelayMs } from '../utils/backoff';
+
+/** Exponent offset for retry delays: attempt N uses baseDelay * multiplier^N (1-based). */
+const RETRY_STRATEGY_ATTEMPT_OFFSET = 0;
 
 /**
  * RetryStrategyService
@@ -50,31 +54,27 @@ export class RetryStrategyService {
       attemptNumber = 1;
     }
 
-    // Exponential backoff: baseDelay * (multiplier ^ attempt)
-    const exponentialDelay = this.config.baseDelayMs * Math.pow(this.config.backoffMultiplier, attemptNumber);
-
-    // Add jitter to prevent thundering herd
-    // Jitter is calculated as: delay * (1 + random(-jitterFactor, +jitterFactor))
-    const jitterRange = exponentialDelay * this.config.jitterFactor;
-    const jitter = (Math.random() * 2 - 1) * jitterRange; // Random value between -jitterRange and +jitterRange
-    const delayWithJitter = exponentialDelay + jitter;
-
-    // Cap at maxDelayMs
-    const finalDelay = Math.min(delayWithJitter, this.config.maxDelayMs);
-
-    // Ensure delay is not negative
-    const clampedDelay = Math.max(finalDelay, 0);
+    // Exponential backoff with symmetric jitter, capped at maxDelayMs.
+    // Delegates to the shared backoff utility while preserving the exact
+    // formula: baseDelay * multiplier^attempt ± (jitterFactor * that value).
+    const clampedDelay = computeBackoffDelayMs(attemptNumber, {
+      baseDelayMs: this.config.baseDelayMs,
+      maxDelayMs: this.config.maxDelayMs,
+      multiplier: this.config.backoffMultiplier,
+      attemptOffset: RETRY_STRATEGY_ATTEMPT_OFFSET,
+      jitterFactor: this.config.jitterFactor,
+      jitterMode: 'symmetric',
+      jitterBasis: 'delay',
+      round: true,
+    });
 
     logger.debug('[RetryStrategy] Calculated retry delay', {
       attemptNumber,
-      exponentialDelay,
-      jitter,
-      delayWithJitter,
       finalDelay: clampedDelay,
       maxDelayMs: this.config.maxDelayMs,
     });
 
-    return Math.round(clampedDelay);
+    return clampedDelay;
   }
 
   /**

@@ -31,6 +31,15 @@ const VALIDATION_PING_TIMEOUT_MS = 5_000;
 /** Pre-disconnect delay base in milliseconds */
 const PRE_DISCONNECT_DELAY_MS = 500;
 
+/** Retry delay for the underlying TelegramClient's built-in connection retries, in milliseconds */
+const TELEGRAM_CLIENT_RETRY_DELAY_MS = 1000;
+
+/** Jitter factor applied to the exponential reconnect backoff delay (±10%) */
+const RECONNECT_JITTER_FACTOR = 0.1;
+
+/** Jitter factor applied to the pre-disconnect delay (±20%) */
+const PRE_DISCONNECT_JITTER_FACTOR = 0.2;
+
 /** Overall budget for post-reconnect message catchup (2 minutes) */
 const RECONNECT_CATCHUP_TIMEOUT_MS = 120_000;
 
@@ -237,7 +246,7 @@ export class TelegramService {
 
     this.client = new TelegramClient(stringSession, apiId, apiHash, {
       connectionRetries: 10,
-      retryDelay: 1000,
+      retryDelay: TELEGRAM_CLIENT_RETRY_DELAY_MS,
       autoReconnect: true,
       requestRetries: 5,
       floodSleepThreshold: 60,
@@ -385,7 +394,7 @@ export class TelegramService {
         this.config.reconnectMaxDelayMs
       );
       // Add jitter to prevent thundering herd
-      const delay = this.addJitter(baseDelay, 0.1);
+      const delay = this.addJitter(baseDelay, RECONNECT_JITTER_FACTOR);
 
       if (this.connectionState.reconnectAttempts > 1) {
         logger.info(`[Telegram] Waiting ${delay}ms before reconnection attempt ${this.connectionState.reconnectAttempts}/${this.config.maxReconnectAttempts}`);
@@ -405,7 +414,7 @@ export class TelegramService {
       }
 
       // Small delay before reconnecting (with jitter)
-      await new Promise((resolve) => setTimeout(resolve, this.addJitter(PRE_DISCONNECT_DELAY_MS, 0.2)));
+      await new Promise((resolve) => setTimeout(resolve, this.addJitter(PRE_DISCONNECT_DELAY_MS, PRE_DISCONNECT_JITTER_FACTOR)));
 
       await this.client.connect();
       this.activityState.lastSuccessfulPing = new Date();

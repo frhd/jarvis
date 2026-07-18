@@ -8,10 +8,29 @@
 import { EventEmitter } from 'events';
 import { nanoid } from 'nanoid';
 import { createLogger } from '../../utils/logger';
+import { computeBackoffDelayMs, DEFAULT_BACKOFF_MULTIPLIER } from '../../utils/backoff';
 import type { HealthStatus } from '../health.service';
 import type { FailoverService, FailoverEvent } from './failover.service';
 
 const logger = createLogger('SelfHealingService');
+
+/** Base delay for retry-operation backoff, in milliseconds. */
+const RETRY_OPERATION_BASE_DELAY_MS = 1000;
+
+/** Cap for retry-operation backoff, in milliseconds. */
+const RETRY_OPERATION_MAX_DELAY_MS = 30000;
+
+/**
+ * Max attempts to retry a recoverable error (timeout/connection/unknown) before
+ * switching to the fallback strategy.
+ */
+const RECOVERABLE_ERROR_MAX_RETRY_ATTEMPTS = 3;
+
+/**
+ * Max attempts to retry an internal (5xx) error before switching to the
+ * circuit-break strategy.
+ */
+const INTERNAL_ERROR_MAX_RETRY_ATTEMPTS = 2;
 
 // ============================================================================
 // Types and Interfaces
@@ -645,7 +664,7 @@ export class SelfHealingService extends EventEmitter {
     switch (errorType) {
       case 'timeout':
       case 'connection':
-        return context.attempt < 3 ? 'retry' : 'fallback';
+        return context.attempt < RECOVERABLE_ERROR_MAX_RETRY_ATTEMPTS ? 'retry' : 'fallback';
       case 'rate_limit':
         return 'shed-load';
       case 'auth':
@@ -653,16 +672,24 @@ export class SelfHealingService extends EventEmitter {
       case 'not_found':
         return 'fallback';
       case 'internal':
-        return context.attempt < 2 ? 'retry' : 'circuit-break';
+        return context.attempt < INTERNAL_ERROR_MAX_RETRY_ATTEMPTS ? 'retry' : 'circuit-break';
       default:
-        return context.attempt < 3 ? 'retry' : 'fallback';
+        return context.attempt < RECOVERABLE_ERROR_MAX_RETRY_ATTEMPTS ? 'retry' : 'fallback';
     }
   }
 
   private async retryOperation(context: ErrorRecoveryContext): Promise<boolean> {
     // Emit event for external handler to retry
     this.emit('retry', { service: context.service, attempt: context.attempt });
-    await this.delay(Math.min(1000 * Math.pow(2, context.attempt - 1), 30000));
+    await this.delay(
+      computeBackoffDelayMs(context.attempt, {
+        baseDelayMs: RETRY_OPERATION_BASE_DELAY_MS,
+        maxDelayMs: RETRY_OPERATION_MAX_DELAY_MS,
+        multiplier: DEFAULT_BACKOFF_MULTIPLIER,
+        attemptOffset: 1,
+        jitterFactor: 0,
+      })
+    );
     return true; // Assume retry succeeds
   }
 
