@@ -1,6 +1,6 @@
-import { eq, desc, and, gte, lte, sql, count, asc } from 'drizzle-orm';
+import { eq, desc, and, gte, lte, sql, count, asc, isNull } from 'drizzle-orm';
 import { db } from '../db/client';
-import { messages, senders, intentClassificationLogs } from '../db/schema';
+import { messages, senders, intentClassificationLogs, llmResponses } from '../db/schema';
 import { logger } from '../utils/logger';
 import type {
   BehaviorTimeRange,
@@ -361,9 +361,28 @@ export class UserBehaviorRepository {
 
       const averageSessionLength = sessionCount > 0 ? totalSessionDuration / sessionCount / (1000 * 60) : 0; // in minutes
 
-      // Response rate is difficult to calculate without explicit bot/user tracking
-      // For now, we'll use a placeholder
-      const responseRate = 1.0; // Placeholder: assume 100% response rate
+      // Response rate: fraction of the user's messages that received a bot
+      // response. A message is "responded to" when it has a linked llmResponses
+      // row with no error (llmResponses.messageId references the user message
+      // that was processed). Computed from real data rather than assumed 100%.
+      const [responseStats] = await db
+        .select({
+          respondedCount: sql<number>`count(DISTINCT ${llmResponses.messageId})`,
+        })
+        .from(llmResponses)
+        .innerJoin(messages, eq(messages.id, llmResponses.messageId))
+        .where(
+          and(
+            eq(messages.senderId, senderId),
+            gte(messages.createdAt, fromDate),
+            lte(messages.createdAt, toDate),
+            isNull(llmResponses.error)
+          )
+        );
+
+      const respondedCount = Number(responseStats?.respondedCount || 0);
+      const responseRate =
+        messageCount > 0 ? Math.min(1, respondedCount / messageCount) : 0;
 
       return {
         messageCount,

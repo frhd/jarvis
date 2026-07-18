@@ -392,11 +392,11 @@ export interface ConversationQualityMetrics {
   /** Cache hit rate */
   cacheHitRate: number;
 
-  /** Average confidence score */
-  avgConfidenceScore: number;
+  /** Average intent-classification confidence score (0-1), or null when no confidence data was captured in range */
+  avgConfidenceScore: number | null;
 
-  /** Low confidence rate (below threshold) */
-  lowConfidenceRate: number;
+  /** Low confidence rate (fraction classified 'low'/'uncertain'), or null when no confidence-level data was captured in range */
+  lowConfidenceRate: number | null;
 
   /** Average turns before resolution (estimate) */
   avgTurnsToResolution?: number;
@@ -408,8 +408,10 @@ export interface ConversationQualityMetrics {
   qualityByTimeOfDay: {
     hour: number;
     avgResponseTime: number;
-    escalationRate: number;
-    avgConfidence: number;
+    /** Escalation rate for this hour (0-1), or null when no classification data was captured for the hour */
+    escalationRate: number | null;
+    /** Average confidence for this hour (0-1), or null when no confidence data was captured for the hour */
+    avgConfidence: number | null;
   }[];
 }
 

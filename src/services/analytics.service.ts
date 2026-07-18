@@ -396,21 +396,27 @@ export class AnalyticsService {
       // Get cache stats
       const cacheStats = await this.analyticsRepo.getCacheStats(timeRange);
 
-      // Get response time by hour for quality analysis
-      const responseTimeByHour = await this.analyticsRepo.getAverageResponseTimes(
-        'hour',
-        timeRange,
-        chatIds
-      );
+      // Get response time by hour and real confidence/escalation stats
+      const [responseTimeByHour, confidenceStats, confidenceByHour] =
+        await Promise.all([
+          this.analyticsRepo.getAverageResponseTimes('hour', timeRange, chatIds),
+          this.analyticsRepo.getConfidenceStats(timeRange),
+          this.analyticsRepo.getConfidenceAndEscalationByHour(timeRange),
+        ]);
+
+      // Index per-hour confidence/escalation for merging with response times.
+      const byHour = new Map(confidenceByHour.map((h) => [h.hour, h]));
 
       const qualityByTimeOfDay = responseTimeByHour.map((g) => {
         const hour = parseInt(g.key);
-        // Find escalation rate for this hour (would need more complex query in real impl)
+        const hourStats = byHour.get(hour);
+        // Null (not zero) when no classification data exists for this hour, so
+        // callers can distinguish "unknown" from a real 0% escalation rate.
         return {
           hour,
           avgResponseTime: g.avgMs,
-          escalationRate: 0, // Placeholder
-          avgConfidence: 0, // Placeholder
+          escalationRate: hourStats ? hourStats.escalationRate : null,
+          avgConfidence: hourStats ? hourStats.avgConfidence : null,
         };
       });
 
@@ -418,8 +424,8 @@ export class AnalyticsService {
         escalationRate: overallEscalationRate,
         escalationRateByIntent,
         cacheHitRate: cacheStats.hitRate,
-        avgConfidenceScore: 0.85, // Placeholder - would need to query confidence scores
-        lowConfidenceRate: 0.1, // Placeholder
+        avgConfidenceScore: confidenceStats.avgConfidence,
+        lowConfidenceRate: confidenceStats.lowConfidenceRate,
         qualityByTimeOfDay,
       };
 

@@ -57,6 +57,33 @@ interface TurnData {
 }
 
 /**
+ * Confidence levels considered "low" for the low-confidence rate metric.
+ * Mirrors the `confidenceLevel` enum on `intentClassificationLogs`.
+ */
+const LOW_CONFIDENCE_LEVELS = ['low', 'uncertain'] as const;
+
+/** Default time gap that separates two conversation sessions (30 minutes). */
+const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** Sentinel for an unbounded upper turn bound in a distribution bucket. */
+const UNBOUNDED_MAX_TURNS = -1;
+
+/**
+ * Turn-count buckets for the conversation length distribution.
+ * `maxTurns === UNBOUNDED_MAX_TURNS` means "no upper bound".
+ */
+const CONVERSATION_LENGTH_BUCKETS = [
+  { label: '1 turn', minTurns: 1, maxTurns: 1 },
+  { label: '2-3 turns', minTurns: 2, maxTurns: 3 },
+  { label: '4-5 turns', minTurns: 4, maxTurns: 5 },
+  { label: '6-10 turns', minTurns: 6, maxTurns: 10 },
+  { label: '11+ turns', minTurns: 11, maxTurns: UNBOUNDED_MAX_TURNS },
+] as const;
+
+/** Percentage scale factor (fraction -> percent). */
+const PERCENT_SCALE = 100;
+
+/**
  * AnalyticsRepository - Data access layer for conversation flow analytics
  *
  * Provides queries for conversation session analysis, flow patterns,
@@ -570,63 +597,101 @@ export class AnalyticsRepository {
     });
 
     try {
-      // This would require first identifying sessions, then grouping by turn count
-      // For now, return a placeholder structure
-      // A full implementation would:
-      // 1. Call getConversationSessions for each chat
-      // 2. Count turns per session
-      // 3. Group into buckets (1, 2-3, 4-5, 6-10, 11+)
-      // 4. Calculate statistics
+      const fromDate = new Date(timeRange.from);
+      const toDate = new Date(timeRange.to);
+
+      // Determine which chats to analyze. When no explicit chatIds are given,
+      // enumerate every chat that had activity in the time range so the
+      // distribution reflects real traffic rather than a fabricated structure.
+      let chatIdList = chatIds;
+      if (!chatIdList || chatIdList.length === 0) {
+        const chatRows = await db
+          .selectDistinct({ chatId: messages.chatId })
+          .from(messages)
+          .where(
+            and(
+              gte(messages.createdAt, fromDate),
+              lte(messages.createdAt, toDate)
+            )
+          );
+        chatIdList = chatRows.map((r) => r.chatId);
+      }
+
+      // Identify sessions per chat and count real turns per session.
+      const sessionData: Array<{ turnCount: number; avgResponseTime: number }> =
+        [];
+      for (const chatId of chatIdList) {
+        const sessions = await this.getConversationSessions(
+          chatId,
+          timeRange,
+          DEFAULT_SESSION_TIMEOUT_MS
+        );
+        for (const session of sessions) {
+          const turns = await this.getConversationTurns(
+            session.sessionId,
+            session.messageIds
+          );
+          const responseTimes = turns
+            .map((t) => t.responseTime)
+            .filter((rt): rt is number => typeof rt === 'number');
+          const avgResponseTime =
+            responseTimes.length > 0
+              ? responseTimes.reduce((sum, rt) => sum + rt, 0) /
+                responseTimes.length
+              : 0;
+          sessionData.push({ turnCount: turns.length, avgResponseTime });
+        }
+      }
+
+      const totalSessions = sessionData.length;
+
+      const buckets = CONVERSATION_LENGTH_BUCKETS.map((bucket) => {
+        const inBucket = sessionData.filter(
+          (s) =>
+            s.turnCount >= bucket.minTurns &&
+            (bucket.maxTurns === UNBOUNDED_MAX_TURNS ||
+              s.turnCount <= bucket.maxTurns)
+        );
+        const count = inBucket.length;
+        const avgResponseTime =
+          count > 0
+            ? inBucket.reduce((sum, s) => sum + s.avgResponseTime, 0) / count
+            : 0;
+        return {
+          label: bucket.label,
+          minTurns: bucket.minTurns,
+          maxTurns: bucket.maxTurns,
+          count,
+          percentage: totalSessions > 0 ? (count / totalSessions) * PERCENT_SCALE : 0,
+          avgResponseTime,
+        };
+      });
+
+      const turnCounts = sessionData
+        .map((s) => s.turnCount)
+        .sort((a, b) => a - b);
+      const avgTurns =
+        totalSessions > 0
+          ? turnCounts.reduce((sum, t) => sum + t, 0) / totalSessions
+          : 0;
+      const medianTurns =
+        totalSessions > 0 ? turnCounts[Math.floor(totalSessions / 2)] : 0;
+      const minTurns = totalSessions > 0 ? turnCounts[0] : 0;
+      const maxTurns = totalSessions > 0 ? turnCounts[turnCounts.length - 1] : 0;
+
+      logger.info('[AnalyticsRepo] Conversation length distribution computed', {
+        totalSessions,
+        chatCount: chatIdList.length,
+      });
 
       return {
-        buckets: [
-          {
-            label: '1 turn',
-            minTurns: 1,
-            maxTurns: 1,
-            count: 0,
-            percentage: 0,
-            avgResponseTime: 0,
-          },
-          {
-            label: '2-3 turns',
-            minTurns: 2,
-            maxTurns: 3,
-            count: 0,
-            percentage: 0,
-            avgResponseTime: 0,
-          },
-          {
-            label: '4-5 turns',
-            minTurns: 4,
-            maxTurns: 5,
-            count: 0,
-            percentage: 0,
-            avgResponseTime: 0,
-          },
-          {
-            label: '6-10 turns',
-            minTurns: 6,
-            maxTurns: 10,
-            count: 0,
-            percentage: 0,
-            avgResponseTime: 0,
-          },
-          {
-            label: '11+ turns',
-            minTurns: 11,
-            maxTurns: -1,
-            count: 0,
-            percentage: 0,
-            avgResponseTime: 0,
-          },
-        ],
+        buckets,
         stats: {
-          totalSessions: 0,
-          avgTurns: 0,
-          medianTurns: 0,
-          minTurns: 0,
-          maxTurns: 0,
+          totalSessions,
+          avgTurns,
+          medianTurns,
+          minTurns,
+          maxTurns,
         },
       };
     } catch (error) {
@@ -744,6 +809,137 @@ export class AnalyticsRepository {
       logger.error('[AnalyticsRepo] Failed to fetch cache stats', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
+      throw error;
+    }
+  }
+
+  /**
+   * Get intent-classification confidence statistics for a time range.
+   *
+   * Confidence data lives on `intentClassificationLogs`. Both fields are
+   * nullable, so this returns `null` (not a fabricated default) when the
+   * relevant column has no data in range, letting callers distinguish
+   * "unknown" from a genuine value.
+   *
+   * @param timeRange - Time range for analysis
+   * @returns Average confidence and low-confidence rate (or null when uncaptured)
+   */
+  async getConfidenceStats(timeRange: AnalyticsTimeRange): Promise<{
+    avgConfidence: number | null;
+    lowConfidenceRate: number | null;
+    sampleSize: number;
+  }> {
+    logger.info('[AnalyticsRepo] Fetching confidence stats', { timeRange });
+
+    try {
+      const fromDate = new Date(timeRange.from);
+      const toDate = new Date(timeRange.to);
+
+      const [row] = await db
+        .select({
+          total: sql<number>`count(*)`,
+          // count(col) ignores NULLs, so this is the number of rows with a value
+          confidenceCount: sql<number>`count(${intentClassificationLogs.confidence})`,
+          confidenceSum: sql<number>`sum(${intentClassificationLogs.confidence})`,
+          levelCount: sql<number>`count(${intentClassificationLogs.confidenceLevel})`,
+          lowLevelCount: sql<number>`sum(CASE WHEN ${inArray(
+            intentClassificationLogs.confidenceLevel,
+            [...LOW_CONFIDENCE_LEVELS]
+          )} THEN 1 ELSE 0 END)`,
+        })
+        .from(intentClassificationLogs)
+        .where(
+          and(
+            gte(intentClassificationLogs.createdAt, fromDate),
+            lte(intentClassificationLogs.createdAt, toDate)
+          )
+        );
+
+      const confidenceCount = Number(row?.confidenceCount) || 0;
+      const levelCount = Number(row?.levelCount) || 0;
+
+      return {
+        avgConfidence:
+          confidenceCount > 0
+            ? Number(row?.confidenceSum) / confidenceCount
+            : null,
+        lowConfidenceRate:
+          levelCount > 0 ? Number(row?.lowLevelCount) / levelCount : null,
+        sampleSize: Number(row?.total) || 0,
+      };
+    } catch (error) {
+      logger.error('[AnalyticsRepo] Failed to fetch confidence stats', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get confidence and escalation rates grouped by hour of day (0-23).
+   *
+   * Used to build per-hour quality metrics. Per-hour values are `null` when no
+   * confidence/classification data exists for that hour, rather than defaulting
+   * to a fabricated number.
+   *
+   * @param timeRange - Time range for analysis
+   * @returns Per-hour confidence and escalation stats
+   */
+  async getConfidenceAndEscalationByHour(
+    timeRange: AnalyticsTimeRange
+  ): Promise<
+    Array<{
+      hour: number;
+      avgConfidence: number | null;
+      escalationRate: number | null;
+      count: number;
+    }>
+  > {
+    logger.info('[AnalyticsRepo] Fetching confidence/escalation by hour', {
+      timeRange,
+    });
+
+    try {
+      const fromDate = new Date(timeRange.from);
+      const toDate = new Date(timeRange.to);
+
+      const hourExpr = sql<number>`CAST(strftime('%H', ${intentClassificationLogs.createdAt}) AS INTEGER)`;
+
+      const results = await db
+        .select({
+          hour: hourExpr,
+          total: sql<number>`count(*)`,
+          confidenceCount: sql<number>`count(${intentClassificationLogs.confidence})`,
+          confidenceSum: sql<number>`sum(${intentClassificationLogs.confidence})`,
+          escalatedCount: sql<number>`sum(CASE WHEN ${intentClassificationLogs.wasEscalated} = 1 THEN 1 ELSE 0 END)`,
+        })
+        .from(intentClassificationLogs)
+        .where(
+          and(
+            gte(intentClassificationLogs.createdAt, fromDate),
+            lte(intentClassificationLogs.createdAt, toDate)
+          )
+        )
+        .groupBy(hourExpr);
+
+      return results.map((r) => {
+        const total = Number(r.total) || 0;
+        const confidenceCount = Number(r.confidenceCount) || 0;
+        return {
+          hour: Number(r.hour),
+          avgConfidence:
+            confidenceCount > 0 ? Number(r.confidenceSum) / confidenceCount : null,
+          escalationRate: total > 0 ? Number(r.escalatedCount) / total : null,
+          count: total,
+        };
+      });
+    } catch (error) {
+      logger.error(
+        '[AnalyticsRepo] Failed to fetch confidence/escalation by hour',
+        {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+      );
       throw error;
     }
   }
