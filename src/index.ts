@@ -11,6 +11,7 @@ import {
   MS_PER_MINUTE,
   MS_PER_HOUR,
   FIVE_MINUTES_MS,
+  THIRTY_SECONDS_MS,
   THIRTY_MINUTES_MS,
   MEMORY_CLEANUP_INTERVAL_MS,
 } from './config/constants.js';
@@ -24,6 +25,7 @@ import {
   deadLetterQueueService,
   semanticCacheService,
   healthService,
+  alertingService,
   metricsService,
   proactiveSchedulerService,
   memoryService,
@@ -73,6 +75,8 @@ const PM2_RESTART_THRESHOLD = 10;
 const PM2_TIME_WINDOW_MS = MS_PER_HOUR; // 1 hour
 const PM2_COOLDOWN_MS = THIRTY_MINUTES_MS; // 30 minutes
 const PM2_CHECK_INTERVAL_MS = MS_PER_MINUTE; // 1 minute
+const HEALTH_MONITORING_INTERVAL_MS = THIRTY_SECONDS_MS; // 30 seconds
+const ALERTING_CHECK_INTERVAL_MS = FIVE_MINUTES_MS; // 5 minutes
 
 // Global worker instances
 let retryWorker: RetryWorker;
@@ -370,6 +374,20 @@ async function startWorkers(): Promise<void> {
   } else {
     logger.info('[PM2] Skipping PM2 restart monitor - Telegram disabled');
   }
+
+  // Start continuous health monitoring. Periodic checks drive onHealthChange,
+  // which triggers auto-recovery for degraded components in steady state.
+  healthService.startMonitoring(HEALTH_MONITORING_INTERVAL_MS);
+  logger.info('[Health] Continuous health monitoring started', {
+    intervalMs: HEALTH_MONITORING_INTERVAL_MS,
+  });
+
+  // Start periodic alert evaluation. Triggered alerts are delivered to the
+  // owner via the onAlert callback wired in services/index.ts.
+  alertingService.startChecking(ALERTING_CHECK_INTERVAL_MS);
+  logger.info('[Alerting] Periodic alert checks started', {
+    intervalMs: ALERTING_CHECK_INTERVAL_MS,
+  });
 }
 
 /**
@@ -632,6 +650,10 @@ function registerShutdownHandlers(): void {
   shutdownRegistry.register('Queue cleanup worker', () => queueCleanupWorker?.stop(), 26);
 
   shutdownRegistry.register('Telegram watchdog worker', () => telegramWatchdogWorker?.stop(), 27);
+
+  shutdownRegistry.register('Health monitoring', () => healthService.stopMonitoring(), 28);
+
+  shutdownRegistry.register('Alerting checks', () => alertingService.stopChecking(), 29);
 
   shutdownRegistry.register(
     'Proactive backup worker',

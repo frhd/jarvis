@@ -171,6 +171,7 @@ import {
 import { appConfig } from '../config';
 import { DEFAULT_PRIORITY_CONFIG } from '../types/queue.types';
 import { createLogger } from '../utils/logger.js';
+import { TEN_MINUTES_MS } from '../config/constants.js';
 
 // ============================================================================
 // Named Constants
@@ -382,6 +383,65 @@ if (appConfig.telegram.enabled) {
 recoveryService.enableAutoRecovery('ollama');
 recoveryService.enableAutoRecovery('claude');
 recoveryService.enableAutoRecovery('queue');
+
+// ============================================================================
+// Alert Delivery: forward critical/high-severity alerts to the owner via Telegram
+// ============================================================================
+
+/**
+ * Minimum time between Telegram deliveries for a single alert rule. Guards the
+ * delivery channel against alert storms. AlertingService already dedupes per
+ * rule via each rule's cooldownMs; this is a defensive second layer scoped to
+ * the notification transport.
+ */
+const ALERT_DELIVERY_MIN_INTERVAL_MS = TEN_MINUTES_MS;
+
+/** Alert severities that warrant an owner-facing Telegram notification. */
+const DELIVERABLE_ALERT_SEVERITIES = new Set<string>(['critical', 'error']);
+
+/** Last Telegram delivery time per alert rule id, keyed by AlertEvent.alertId. */
+const alertDeliveryLastSentAt = new Map<string, number>();
+
+alertingService.onAlert(async (event) => {
+  try {
+    if (!DELIVERABLE_ALERT_SEVERITIES.has(event.severity)) {
+      return;
+    }
+
+    if (!appConfig.telegram.enabled) {
+      return;
+    }
+
+    const targetChatId = appConfig.security.ownerTelegramId || appConfig.proactive.targetChatId;
+    if (!targetChatId) {
+      logger.debug('[Alerting] No owner/target chat configured; skipping alert delivery', {
+        alertId: event.id,
+        severity: event.severity,
+      });
+      return;
+    }
+
+    const now = Date.now();
+    const lastSent = alertDeliveryLastSentAt.get(event.alertId);
+    if (lastSent && now - lastSent < ALERT_DELIVERY_MIN_INTERVAL_MS) {
+      return;
+    }
+    alertDeliveryLastSentAt.set(event.alertId, now);
+
+    const message = `🚨 [${event.severity.toUpperCase()}] ${event.message}`;
+    await telegramService.sendMessage(targetChatId, message);
+    logger.info('[Alerting] Alert delivered to owner via Telegram', {
+      alertId: event.id,
+      severity: event.severity,
+    });
+  } catch (error) {
+    // Alert callbacks must never throw; degrade gracefully if Telegram is down.
+    logger.error('[Alerting] Failed to deliver alert via Telegram', {
+      alertId: event.id,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 initializeRetentionService(appConfig.security.retention, securityAuditRepository);
 
