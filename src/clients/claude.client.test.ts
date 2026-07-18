@@ -121,6 +121,58 @@ describe('ClaudeClient', () => {
     });
   });
 
+  describe('SIGKILL escalation on timeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('sends SIGTERM then escalates to SIGKILL when the process ignores SIGTERM', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const CLI_TIMEOUT_MS = 5000;
+      const promise = client.runAgent('long task', { timeoutMs: CLI_TIMEOUT_MS });
+
+      // Advance past the CLI timeout: SIGTERM is sent, promise rejects.
+      await vi.advanceTimersByTimeAsync(CLI_TIMEOUT_MS);
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(proc.kill).not.toHaveBeenCalledWith('SIGKILL');
+
+      // Process keeps ignoring SIGTERM; advance past the grace period.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(proc.kill).toHaveBeenCalledWith('SIGKILL');
+
+      const result = await promise;
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('timed out');
+    });
+
+    it('does NOT send SIGKILL if the process exits after SIGTERM', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const CLI_TIMEOUT_MS = 5000;
+      const promise = client.runAgent('long task', { timeoutMs: CLI_TIMEOUT_MS });
+
+      await vi.advanceTimersByTimeAsync(CLI_TIMEOUT_MS);
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+
+      // Process exits in response to SIGTERM, which must clear the grace timer.
+      proc.emit('exit', null, 'SIGTERM');
+      proc.emit('close', null);
+
+      // Advancing past the grace period must NOT trigger a SIGKILL.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(proc.kill).not.toHaveBeenCalledWith('SIGKILL');
+
+      await promise;
+    });
+  });
+
   describe('spawn environment sanitization', () => {
     const sessionVars: Record<string, string> = {
       CLAUDECODE: '1',

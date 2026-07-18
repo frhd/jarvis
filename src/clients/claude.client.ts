@@ -13,6 +13,13 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 
+/**
+ * Grace period after sending SIGTERM to a timed-out CLI subprocess before
+ * escalating to SIGKILL. A subprocess that ignores SIGTERM would otherwise
+ * linger as a zombie holding memory/file handles.
+ */
+const SIGKILL_GRACE_MS = 5_000;
+
 export interface ClaudeConfig {
   cliPath: string; // Default: 'claude'
   timeoutMs: number; // Default: 60000
@@ -225,8 +232,24 @@ export class ClaudeClient {
       let stdout = '';
       let stderr = '';
 
+      // Grace timer that force-kills the subprocess if it ignores SIGTERM.
+      let sigkillTimer: NodeJS.Timeout | undefined;
+
+      const clearSigkillTimer = () => {
+        if (sigkillTimer) {
+          clearTimeout(sigkillTimer);
+          sigkillTimer = undefined;
+        }
+      };
+
       const timeoutId = setTimeout(() => {
         childProcess.kill('SIGTERM');
+        // Escalate to SIGKILL if the process does not exit within the grace
+        // period. unref() so this timer never keeps the event loop alive.
+        sigkillTimer = setTimeout(() => {
+          childProcess.kill('SIGKILL');
+        }, SIGKILL_GRACE_MS);
+        sigkillTimer.unref?.();
         reject(new Error(`Claude CLI timed out after ${timeout}ms`));
       }, timeout);
 
@@ -240,8 +263,14 @@ export class ClaudeClient {
         logger.debug('[Claude] stderr chunk', { chunk: data.toString().substring(0, LONG_CONTENT_PREVIEW_LENGTH) });
       });
 
+      // Clear the SIGKILL grace timer as soon as the process is gone, so a
+      // process that exits (whether on its own or from SIGTERM) does not get a
+      // stray SIGKILL and the timer cannot outlive the process.
+      childProcess.on('exit', clearSigkillTimer);
+
       childProcess.on('close', (code) => {
         clearTimeout(timeoutId);
+        clearSigkillTimer();
 
         if (code === 0) {
           resolve(stdout.trim());
@@ -253,6 +282,7 @@ export class ClaudeClient {
 
       childProcess.on('error', (error) => {
         clearTimeout(timeoutId);
+        clearSigkillTimer();
         reject(new Error(`Failed to spawn Claude CLI: ${error.message}`));
       });
     });

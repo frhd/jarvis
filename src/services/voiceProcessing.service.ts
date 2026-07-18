@@ -14,6 +14,14 @@ import path from 'path';
 
 const logger = createLogger('VoiceProcessingService');
 
+/**
+ * Timeout for the Whisper /asr transcription request.
+ * Generous because voice notes can be long; a hung whisper service must not
+ * wedge the queue item forever. On abort we surface a clear error so the
+ * caller's failure path (transcriptStatus=failed) engages.
+ */
+const TRANSCRIPTION_TIMEOUT_MS = 180_000;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -320,11 +328,27 @@ export class VoiceProcessingService {
         headers['Authorization'] = `Bearer ${this.config.whisperApiKey}`;
       }
 
-      const response = await fetch(url.toString(), {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TRANSCRIPTION_TIMEOUT_MS);
+
+      let response: Response;
+      try {
+        response = await fetch(url.toString(), {
+          method: 'POST',
+          headers,
+          body: formData,
+          signal: controller.signal,
+        });
+      } catch (fetchError) {
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error(
+            `Whisper transcription timed out after ${TRANSCRIPTION_TIMEOUT_MS}ms`
+          );
+        }
+        throw fetchError;
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
