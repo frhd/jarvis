@@ -121,6 +121,7 @@ const rawConfig = {
     watchdogEnabled: process.env.TELEGRAM_WATCHDOG_ENABLED !== 'false',
     watchdogIntervalMs: ConfigParsers.timeout(process.env.TELEGRAM_WATCHDOG_INTERVAL_MS, 60000),
     watchdogRestartAfterDownMs: ConfigParsers.timeout(process.env.TELEGRAM_WATCHDOG_RESTART_AFTER_DOWN_MS, 600000),
+    watchdogStuckReconnectingThresholdMs: ConfigParsers.timeout(process.env.TELEGRAM_WATCHDOG_STUCK_RECONNECTING_THRESHOLD_MS, 600000),
     watchdogRestartEscalationEnabled: process.env.TELEGRAM_WATCHDOG_RESTART_ESCALATION_ENABLED !== 'false',
   },
 

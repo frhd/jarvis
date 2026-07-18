@@ -50,6 +50,7 @@ describe('TelegramWatchdogWorker', () => {
     config = {
       staleUpdateThresholdMs: 5 * 60 * 1000, // 5 min
       restartAfterDownMs: 10 * 60 * 1000, // 10 min
+      stuckReconnectingThresholdMs: 10 * 60 * 1000, // 10 min
       enableRestartEscalation: true,
     };
     worker = makeWorker();
@@ -120,6 +121,58 @@ describe('TelegramWatchdogWorker', () => {
         lastUpdate: new Date(nowMs - (config.staleUpdateThresholdMs - 1)),
       };
       await worker.tick();
+      expect(forceReconnect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('stuck reconnecting state (reconnect that never finishes)', () => {
+    it('treats reconnecting stuck past the threshold as unhealthy and escalates to restart', async () => {
+      status = { ...HEALTHY, reconnecting: true };
+
+      // Reconnect starts: watchdog observes it and waits
+      await worker.tick();
+      expect(forceReconnect).not.toHaveBeenCalled();
+      expect(restartProcess).not.toHaveBeenCalled();
+
+      // Still reconnecting past the stuck threshold: now unhealthy (downtime starts)
+      nowMs += config.stuckReconnectingThresholdMs + 1;
+      await worker.tick();
+      expect(restartProcess).not.toHaveBeenCalled();
+
+      // Downtime sustained past the restart threshold: escalate
+      nowMs += config.restartAfterDownMs + 1;
+      await worker.tick();
+      expect(restartProcess).toHaveBeenCalledTimes(1);
+    });
+
+    it('never calls forceReconnect while stuck reconnecting (it would await the hung reconnect)', async () => {
+      config = { ...config, enableRestartEscalation: false };
+      worker = makeWorker();
+      status = { ...HEALTHY, reconnecting: true };
+
+      await worker.tick();
+      nowMs += config.stuckReconnectingThresholdMs + config.restartAfterDownMs + 2;
+      await worker.tick();
+
+      expect(forceReconnect).not.toHaveBeenCalled();
+    });
+
+    it('resets the stuck tracker when the reconnect completes', async () => {
+      status = { ...HEALTHY, reconnecting: true };
+      await worker.tick(); // reconnect observed at t0
+
+      // Reconnect finishes in time
+      status = { ...HEALTHY, reconnecting: false };
+      nowMs += config.stuckReconnectingThresholdMs + 1;
+      await worker.tick(); // healthy -> reset
+
+      // A new reconnect starts; should NOT be treated as stuck
+      status = { ...HEALTHY, reconnecting: true };
+      await worker.tick();
+      nowMs += config.stuckReconnectingThresholdMs - 1;
+      await worker.tick();
+
+      expect(restartProcess).not.toHaveBeenCalled();
       expect(forceReconnect).not.toHaveBeenCalled();
     });
   });

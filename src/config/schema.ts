@@ -131,6 +131,7 @@ const telegramSchema = z.object({
   watchdogEnabled: z.boolean().default(true),
   watchdogIntervalMs: positiveInt.default(60000), // check the connection every 60 seconds
   watchdogRestartAfterDownMs: positiveInt.default(600000), // 10 min of sustained downtime -> restart process
+  watchdogStuckReconnectingThresholdMs: positiveInt.default(600000), // reconnect in progress > 10 min -> treat as unhealthy
   watchdogRestartEscalationEnabled: z.boolean().default(true),
 });
 

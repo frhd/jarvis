@@ -205,8 +205,16 @@ export class ClaudeClient {
     return new Promise((resolve, reject) => {
       logger.debug('[Claude] Spawning CLI', { cliPath: this.config.cliPath, args });
 
-      // Strip CLAUDECODE env var to prevent "nested Claude Code session" errors
-      const { CLAUDECODE, ...cleanEnv } = process.env;
+      // Strip all inherited Claude Code session variables so the CLI runs as
+      // a fresh top-level invocation with its own stored credentials. Leaked
+      // session vars cause nested-session errors and can bind the CLI to a
+      // dead session's expired OAuth token (401s on every request).
+      const cleanEnv = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([key]) =>
+            key !== 'CLAUDECODE' && key !== 'CLAUDE_EFFORT' && !key.startsWith('CLAUDE_CODE_')
+        )
+      );
 
       const childProcess = spawn(this.config.cliPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],  // ignore stdin completely

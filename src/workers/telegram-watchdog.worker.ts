@@ -46,6 +46,8 @@ export interface TelegramWatchdogConfig {
   staleUpdateThresholdMs: number;
   /** Escalate to a process restart after the connection is down this long. */
   restartAfterDownMs: number;
+  /** Treat a reconnect still in progress past this as stuck (unhealthy). */
+  stuckReconnectingThresholdMs: number;
   /** Whether the restart escalation is allowed at all. */
   enableRestartEscalation: boolean;
 }
@@ -55,6 +57,8 @@ export class TelegramWatchdogWorker {
   private readonly now: () => number;
   /** Timestamp (ms) when the connection was first observed unhealthy, or null. */
   private downSince: number | null = null;
+  /** Timestamp (ms) when a reconnect was first observed in progress, or null. */
+  private reconnectingSince: number | null = null;
 
   constructor(
     private readonly deps: TelegramWatchdogDeps,
@@ -86,10 +90,22 @@ export class TelegramWatchdogWorker {
   async tick(): Promise<void> {
     const status = this.deps.getConnectionStatus();
 
-    // A reconnect is already underway; let it finish before intervening.
+    // A reconnect is already underway; let it finish before intervening — but
+    // only for so long. A reconnect stuck past the threshold (e.g. hung on a
+    // network call that never resolves) permanently disables the in-service
+    // health checks, so it must be treated as unhealthy, not waited on.
     if (status.reconnecting) {
+      if (this.reconnectingSince === null) {
+        this.reconnectingSince = this.now();
+      }
+      const reconnectingMs = this.now() - this.reconnectingSince;
+      if (reconnectingMs <= this.config.stuckReconnectingThresholdMs) {
+        return;
+      }
+      this.handleUnhealthy(status, { stuckReconnectingMs: reconnectingMs });
       return;
     }
+    this.reconnectingSince = null;
 
     if (this.isHealthy(status)) {
       if (this.downSince !== null) {
@@ -99,27 +115,8 @@ export class TelegramWatchdogWorker {
       return;
     }
 
-    const now = this.now();
-    if (this.downSince === null) {
-      this.downSince = now;
-    }
-    const downMs = now - this.downSince;
-
-    logger.warn('[TelegramWatchdog] Connection unhealthy', {
-      connected: status.connected,
-      lastUpdate: status.lastUpdate ? status.lastUpdate.toISOString() : null,
-      outboundQueueSize: status.outboundQueueSize,
-      downMs,
-    });
-
-    // Escalate to a full restart once downtime is sustained — reconnects alone
-    // have failed to recover the connection.
-    if (this.config.enableRestartEscalation && downMs >= this.config.restartAfterDownMs) {
-      logger.error('[TelegramWatchdog] Sustained downtime — escalating to process restart', {
-        downMs,
-        restartAfterDownMs: this.config.restartAfterDownMs,
-      });
-      this.deps.restartProcess();
+    const restarted = this.handleUnhealthy(status, {});
+    if (restarted) {
       return;
     }
 
@@ -131,6 +128,46 @@ export class TelegramWatchdogWorker {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Tracks downtime and escalates to a process restart once it is sustained.
+   * Returns true when the restart escalation fired. Callers decide whether a
+   * forced reconnect is a sensible follow-up — it is not while a stuck
+   * reconnect holds the reconnect mutex, since it would await that same
+   * hung promise.
+   */
+  private handleUnhealthy(
+    status: TelegramConnectionStatus,
+    extra: Record<string, number>
+  ): boolean {
+    const now = this.now();
+    if (this.downSince === null) {
+      this.downSince = now;
+    }
+    const downMs = now - this.downSince;
+
+    logger.warn('[TelegramWatchdog] Connection unhealthy', {
+      connected: status.connected,
+      reconnecting: status.reconnecting,
+      lastUpdate: status.lastUpdate ? status.lastUpdate.toISOString() : null,
+      outboundQueueSize: status.outboundQueueSize,
+      downMs,
+      ...extra,
+    });
+
+    // Escalate to a full restart once downtime is sustained — reconnects alone
+    // have failed to recover the connection.
+    if (this.config.enableRestartEscalation && downMs >= this.config.restartAfterDownMs) {
+      logger.error('[TelegramWatchdog] Sustained downtime — escalating to process restart', {
+        downMs,
+        restartAfterDownMs: this.config.restartAfterDownMs,
+        ...extra,
+      });
+      this.deps.restartProcess();
+      return true;
+    }
+    return false;
   }
 
   private isHealthy(status: TelegramConnectionStatus): boolean {

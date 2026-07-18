@@ -4,6 +4,7 @@ import input from 'input';
 import qrcode from 'qrcode-terminal';
 import { appConfig } from '../config';
 import { logger } from '../utils/logger';
+import { withTimeout } from '../utils/timeout';
 
 // ============================================================================
 // Named Constants
@@ -29,6 +30,26 @@ const VALIDATION_PING_TIMEOUT_MS = 5_000;
 
 /** Pre-disconnect delay base in milliseconds */
 const PRE_DISCONNECT_DELAY_MS = 500;
+
+/** Overall budget for post-reconnect message catchup (2 minutes) */
+const RECONNECT_CATCHUP_TIMEOUT_MS = 120_000;
+
+/** Timeout for a single getMessages call during catchup (30 seconds) */
+const CATCHUP_GET_MESSAGES_TIMEOUT_MS = 30_000;
+
+/** Timeout for processing a single missed message during catchup (60 seconds) */
+const CATCHUP_HANDLER_TIMEOUT_MS = 60_000;
+
+/** Timeout for a single queued message send during queue flush (30 seconds) */
+const FLUSH_SEND_TIMEOUT_MS = 30_000;
+
+/**
+ * Multiplier on the stale-update threshold past which a reconnect happens even
+ * if the connection validates. A request-layer probe (updates.GetState) cannot
+ * prove the passive update stream is healthy, so validation only defers the
+ * reconnect during quiet periods — it must not disable staleness recovery.
+ */
+export const STALE_HARD_RECONNECT_MULTIPLIER = 6;
 
 // ============================================================================
 // Types and Interfaces
@@ -410,11 +431,28 @@ export class TelegramService {
         this.handlerSetupFn(this.client);
       }
 
-      // Catch up on missed messages
-      await this.catchUpMissedMessages();
+      // Catchup and flush must be time-bounded: a hang here holds the
+      // reconnect mutex open indefinitely, which silently disables health
+      // checks, keepalive pings, the watchdog, and outbound sends.
+      try {
+        await withTimeout(this.catchUpMissedMessages(), RECONNECT_CATCHUP_TIMEOUT_MS);
+      } catch (error) {
+        logger.warn('[Telegram] Post-reconnect catchup did not complete', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
 
-      // Flush queued outbound messages
-      await this.flushOutboundQueue();
+      try {
+        await withTimeout(
+          this.flushOutboundQueue(),
+          this.config.outboundQueueFlushTimeoutMs + FLUSH_SEND_TIMEOUT_MS
+        );
+      } catch (error) {
+        logger.warn('[Telegram] Post-reconnect queue flush did not complete', {
+          error: error instanceof Error ? error.message : String(error),
+          remainingQueueSize: this.outboundQueue.length,
+        });
+      }
 
     } catch (error) {
       this.metrics.failedReconnectCount++;
@@ -453,11 +491,15 @@ export class TelegramService {
       try {
         const lastMsgId = this.lastProcessedMessageId.get(chatId) || 0;
 
-        // Fetch recent messages from this chat
-        const messages = await this.client.getMessages(chatId, {
-          limit: 10,
-          minId: lastMsgId,
-        });
+        // Fetch recent messages from this chat (time-bounded: this call can
+        // hang indefinitely on a degraded connection)
+        const messages = await withTimeout(
+          this.client.getMessages(chatId, {
+            limit: 10,
+            minId: lastMsgId,
+          }),
+          CATCHUP_GET_MESSAGES_TIMEOUT_MS
+        );
 
         if (messages.length > 0) {
           logger.info('[Telegram] Found missed messages during catchup', {
@@ -473,7 +515,7 @@ export class TelegramService {
 
             if (msg.id > lastMsgId && this.catchupHandler) {
               try {
-                await this.catchupHandler(this.client, msg);
+                await withTimeout(this.catchupHandler(this.client, msg), CATCHUP_HANDLER_TIMEOUT_MS);
                 logger.info('[Telegram] Processed missed message', {
                   chatId,
                   messageId: msg.id,
@@ -678,6 +720,18 @@ export class TelegramService {
       }
 
       if (timeSinceLastUpdate && timeSinceLastUpdate > this.config.staleUpdateThresholdMs) {
+        // A quiet account looks identical to a broken update stream. Validate
+        // before tearing the connection down — unvalidated staleness used to
+        // cause a full reconnect every ~5 idle minutes (~220/day).
+        const hardThresholdMs = this.config.staleUpdateThresholdMs * STALE_HARD_RECONNECT_MULTIPLIER;
+        if (timeSinceLastUpdate <= hardThresholdMs && (await this.validateUpdateStream())) {
+          logger.debug('[Telegram] No updates in stale window but connection validates, deferring reconnect', {
+            timeSinceLastUpdateMs: timeSinceLastUpdate,
+            hardThresholdMs,
+          });
+          return;
+        }
+
         logger.debug('[Telegram] Update stream appears stale, triggering reconnect', {
           timeSinceLastUpdateMs: timeSinceLastUpdate,
           thresholdMs: this.config.staleUpdateThresholdMs,
@@ -701,6 +755,22 @@ export class TelegramService {
       });
 
       await this.handlePotentialDisconnect('health_check_failed');
+    }
+  }
+
+  /**
+   * Probe the connection at the updates layer to distinguish a quiet account
+   * from a broken connection.
+   */
+  private async validateUpdateStream(): Promise<boolean> {
+    try {
+      await withTimeout(this.client.invoke(new Api.updates.GetState()), VALIDATION_PING_TIMEOUT_MS);
+      return true;
+    } catch (error) {
+      logger.debug('[Telegram] Update stream validation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 
@@ -993,45 +1063,51 @@ export class TelegramService {
     const queueCopy = [...this.outboundQueue];
     this.outboundQueue = [];
 
-    for (const msg of queueCopy) {
-      if (Date.now() - startTime > timeout) {
-        // Re-queue remaining messages
-        logger.warn('[Telegram] Queue flush timeout, re-queueing remaining messages', {
-          remaining: queueCopy.length - successCount - failCount,
-        });
-        const remaining = queueCopy.slice(successCount + failCount);
-        this.outboundQueue.push(...remaining);
-        break;
-      }
-
-      try {
-        await this.client.sendMessage(msg.chatId, {
-          message: msg.text,
-          replyTo: msg.replyToMsgId,
-        });
-        successCount++;
-        this.metrics.flushedMessageCount++;
-
-        // Small delay between messages to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, QUEUE_MESSAGE_DELAY_MS));
-      } catch (error) {
-        failCount++;
-        msg.retryCount++;
-
-        if (msg.retryCount < QUEUED_MESSAGE_MAX_RETRIES) {
-          // Re-queue for another attempt
-          this.outboundQueue.push(msg);
-        } else {
-          logger.error('[Telegram] Failed to send queued message after retries', {
-            chatId: msg.chatId,
-            retryCount: msg.retryCount,
-            error: error instanceof Error ? error.message : String(error),
+    try {
+      for (const msg of queueCopy) {
+        if (Date.now() - startTime > timeout) {
+          // Re-queue remaining messages
+          logger.warn('[Telegram] Queue flush timeout, re-queueing remaining messages', {
+            remaining: queueCopy.length - successCount - failCount,
           });
+          const remaining = queueCopy.slice(successCount + failCount);
+          this.outboundQueue.push(...remaining);
+          break;
+        }
+
+        try {
+          // Time-bounded: a hung send would otherwise stall the flush forever
+          await withTimeout(
+            this.client.sendMessage(msg.chatId, {
+              message: msg.text,
+              replyTo: msg.replyToMsgId,
+            }),
+            FLUSH_SEND_TIMEOUT_MS
+          );
+          successCount++;
+          this.metrics.flushedMessageCount++;
+
+          // Small delay between messages to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, QUEUE_MESSAGE_DELAY_MS));
+        } catch (error) {
+          failCount++;
+          msg.retryCount++;
+
+          if (msg.retryCount < QUEUED_MESSAGE_MAX_RETRIES) {
+            // Re-queue for another attempt
+            this.outboundQueue.push(msg);
+          } else {
+            logger.error('[Telegram] Failed to send queued message after retries', {
+              chatId: msg.chatId,
+              retryCount: msg.retryCount,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
+    } finally {
+      this.isFlushingQueue = false;
     }
-
-    this.isFlushingQueue = false;
 
     logger.info('[Telegram] Queue flush completed', {
       success: successCount,

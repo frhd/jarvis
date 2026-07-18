@@ -50,6 +50,7 @@ import {
   MemoryCleanupWorker,
   TelegramWatchdogWorker,
 } from './workers/index.js';
+import { STALE_HARD_RECONNECT_MULTIPLIER } from './services/telegram.service.js';
 import { SlackService } from './platforms/slack/index.js';
 import { CeoModule, DEFAULT_CEO_CONFIG } from './modules/ceo/index.js';
 import { moduleRegistry } from './modules/index.js';
@@ -323,8 +324,12 @@ async function startWorkers(): Promise<void> {
         },
       },
       {
-        staleUpdateThresholdMs: appConfig.telegram.staleUpdateThresholdMs,
+        // The service itself defers stale reconnects while the connection
+        // validates; the watchdog is the backstop, so it only intervenes at
+        // the hard threshold.
+        staleUpdateThresholdMs: appConfig.telegram.staleUpdateThresholdMs * STALE_HARD_RECONNECT_MULTIPLIER,
         restartAfterDownMs: appConfig.telegram.watchdogRestartAfterDownMs,
+        stuckReconnectingThresholdMs: appConfig.telegram.watchdogStuckReconnectingThresholdMs,
         enableRestartEscalation: appConfig.telegram.watchdogRestartEscalationEnabled,
       }
     );

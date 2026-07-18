@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach, type Mock } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import { EventEmitter } from 'events';
 
 // Mock child_process before importing ClaudeClient
@@ -118,6 +118,50 @@ describe('ClaudeClient', () => {
       const mcpIndex = spawnArgs.indexOf('--mcp-config');
       const taskIndex = spawnArgs.indexOf(task);
       expect(mcpIndex).toBeLessThan(taskIndex);
+    });
+  });
+
+  describe('spawn environment sanitization', () => {
+    const sessionVars: Record<string, string> = {
+      CLAUDECODE: '1',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      CLAUDE_CODE_SESSION_ID: 'dead-session-id',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+      CLAUDE_CODE_EXECPATH: '/nonexistent/version',
+      CLAUDE_EFFORT: 'high',
+    };
+    let originalValues: Record<string, string | undefined>;
+
+    beforeEach(() => {
+      originalValues = {};
+      for (const [key, value] of Object.entries(sessionVars)) {
+        originalValues[key] = process.env[key];
+        process.env[key] = value;
+      }
+    });
+
+    afterEach(() => {
+      for (const [key, value] of Object.entries(originalValues)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+
+    it('strips all inherited Claude Code session variables from the spawned CLI environment', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = client.runAgent('test task', {});
+      proc.stdout.emit('data', Buffer.from('result'));
+      proc.emit('close', 0);
+      await promise;
+
+      const spawnOptions = mockSpawn.mock.calls[0][2] as { env: Record<string, string | undefined> };
+      for (const key of Object.keys(sessionVars)) {
+        expect(spawnOptions.env, `expected ${key} to be stripped`).not.toHaveProperty(key);
+      }
+      // Non-session variables must pass through untouched
+      expect(spawnOptions.env.PATH).toBe(process.env.PATH);
     });
   });
 });
