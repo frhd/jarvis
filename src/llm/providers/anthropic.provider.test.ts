@@ -18,9 +18,9 @@ import type {
 
 const mockAnthropicModels: ModelConfig[] = [
   {
-    id: 'claude-sonnet-4-20250514',
+    id: 'claude-sonnet-5',
     provider: 'anthropic',
-    displayName: 'Claude Sonnet 4',
+    displayName: 'Claude Sonnet 5',
     contextWindow: 200000,
     maxOutputTokens: 8192,
     costPer1kInput: 3.0,
@@ -43,7 +43,7 @@ function createTestConfig(overrides?: Partial<ProviderConfig>): ProviderConfig &
     type: 'anthropic',
     enabled: true,
     baseUrl: 'https://api.anthropic.com/v1',
-    defaultModel: 'claude-sonnet-4-20250514',
+    defaultModel: 'claude-sonnet-5',
     models: mockAnthropicModels,
     timeoutMs: 60000,
     maxRetries: 3,
@@ -99,7 +99,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Hi' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 5, output_tokens: 1 },
         }),
@@ -122,7 +122,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Hi' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 5, output_tokens: 1 },
         }),
@@ -133,7 +133,7 @@ describe('AnthropicProvider', () => {
       expect(health.healthy).toBe(true);
       expect(health.provider).toBe('anthropic');
       expect(health.latencyMs).toBeGreaterThanOrEqual(0);
-      expect(health.availableModels).toContain('claude-sonnet-4-20250514');
+      expect(health.availableModels).toContain('claude-sonnet-5');
     });
 
     it('should return unhealthy status on API error', async () => {
@@ -166,7 +166,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Hi' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 5, output_tokens: 1 },
         }),
@@ -194,7 +194,7 @@ describe('AnthropicProvider', () => {
         type: 'message',
         role: 'assistant',
         content: [{ type: 'text', text: 'Hello! How can I help you?' }],
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
         stop_reason: 'end_turn',
         usage: { input_tokens: 10, output_tokens: 8 },
       };
@@ -224,7 +224,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Response' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 20, output_tokens: 5 },
         }),
@@ -253,7 +253,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Response' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 20, output_tokens: 5 },
         }),
@@ -282,7 +282,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'I see an image' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 100, output_tokens: 10 },
         }),
@@ -326,7 +326,7 @@ describe('AnthropicProvider', () => {
             input: { location: 'London' },
           },
         ],
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
         stop_reason: 'tool_use',
         usage: { input_tokens: 50, output_tokens: 20 },
       };
@@ -375,7 +375,7 @@ describe('AnthropicProvider', () => {
             input: { location: 'London' },
           },
         ],
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
         stop_reason: 'tool_use',
         usage: { input_tokens: 50, output_tokens: 30 },
       };
@@ -403,7 +403,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'The weather is sunny.' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 100, output_tokens: 15 },
         }),
@@ -439,7 +439,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Response' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 10, output_tokens: 5 },
         }),
@@ -464,7 +464,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Response' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 10, output_tokens: 5 },
         }),
@@ -536,7 +536,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Response' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 10, output_tokens: 5 },
         }),
@@ -706,19 +706,19 @@ describe('AnthropicProvider', () => {
 
     it('should create provider with custom options', () => {
       const provider = createAnthropicProvider('test-key', {
-        defaultModel: 'claude-opus-4-20250514',
+        defaultModel: 'claude-opus-5',
         timeoutMs: 90000,
       });
-      expect(provider.config.defaultModel).toBe('claude-opus-4-20250514');
+      expect(provider.config.defaultModel).toBe('claude-opus-5');
       expect(provider.config.timeoutMs).toBe(90000);
     });
 
     it('should include Claude Sonnet, Opus, and Haiku models', () => {
       const provider = createAnthropicProvider('test-key');
       const modelIds = provider.config.models.map((m) => m.id);
-      expect(modelIds).toContain('claude-sonnet-4-20250514');
-      expect(modelIds).toContain('claude-opus-4-20250514');
-      expect(modelIds).toContain('claude-3-5-haiku-20241022');
+      expect(modelIds).toContain('claude-sonnet-5');
+      expect(modelIds).toContain('claude-opus-5');
+      expect(modelIds).toContain('claude-haiku-4-5');
     });
   });
 
@@ -749,7 +749,7 @@ describe('AnthropicProvider', () => {
           type: 'message',
           role: 'assistant',
           content: [{ type: 'text', text: 'Response' }],
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           stop_reason: 'end_turn',
           usage: { input_tokens: 10, output_tokens: 5 },
         }),

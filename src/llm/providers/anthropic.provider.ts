@@ -94,7 +94,7 @@ interface AnthropicResponse {
     input?: unknown;
   }>;
   model: string;
-  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
+  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'refusal';
   stop_sequence?: string;
   usage: {
     input_tokens: number;
@@ -491,7 +491,9 @@ export class AnthropicProvider extends BaseLLMProvider implements IUnifiedLLMPro
           ? ('length' as const)
           : data.stop_reason === 'tool_use'
             ? ('tool_calls' as const)
-            : ('stop' as const);
+            : data.stop_reason === 'refusal'
+              ? ('content_filter' as const)
+              : ('stop' as const);
 
     const usage: TokenUsage = {
       promptTokens: data.usage.input_tokens,
@@ -627,11 +629,13 @@ export class AnthropicProvider extends BaseLLMProvider implements IUnifiedLLMPro
 export function createAnthropicProvider(apiKey: string, options?: Partial<AnthropicConfig>): AnthropicProvider {
   const defaultModels: ModelConfig[] = [
     {
-      id: 'claude-sonnet-4-20250514',
+      id: 'claude-sonnet-5',
       provider: 'anthropic',
-      displayName: 'Claude Sonnet 4',
-      contextWindow: 200000,
-      maxOutputTokens: 8192,
+      displayName: 'Claude Sonnet 5',
+      contextWindow: 1000000,
+      // Model supports up to 128K output, but this doubles as the default
+      // max_tokens for non-streaming requests, which time out at high values
+      maxOutputTokens: 16000,
       costPer1kInput: 3.0,
       costPer1kOutput: 15.0,
       capabilities: {
@@ -646,13 +650,13 @@ export function createAnthropicProvider(apiKey: string, options?: Partial<Anthro
       tags: ['fast', 'smart', 'reasoning'],
     },
     {
-      id: 'claude-opus-4-20250514',
+      id: 'claude-opus-5',
       provider: 'anthropic',
-      displayName: 'Claude Opus 4',
-      contextWindow: 200000,
-      maxOutputTokens: 8192,
-      costPer1kInput: 15.0,
-      costPer1kOutput: 75.0,
+      displayName: 'Claude Opus 5',
+      contextWindow: 1000000,
+      maxOutputTokens: 16000,
+      costPer1kInput: 5.0,
+      costPer1kOutput: 25.0,
       capabilities: {
         streaming: true,
         toolCalling: true,
@@ -665,9 +669,9 @@ export function createAnthropicProvider(apiKey: string, options?: Partial<Anthro
       tags: ['most-capable', 'reasoning', 'coding'],
     },
     {
-      id: 'claude-3-5-haiku-20241022',
+      id: 'claude-haiku-4-5',
       provider: 'anthropic',
-      displayName: 'Claude 3.5 Haiku',
+      displayName: 'Claude Haiku 4.5',
       contextWindow: 200000,
       maxOutputTokens: 8192,
       costPer1kInput: 1.0,
@@ -690,7 +694,7 @@ export function createAnthropicProvider(apiKey: string, options?: Partial<Anthro
     enabled: true,
     apiKey,
     baseUrl: options?.baseUrl || 'https://api.anthropic.com/v1',
-    defaultModel: options?.defaultModel || 'claude-sonnet-4-20250514',
+    defaultModel: options?.defaultModel || 'claude-sonnet-5',
     models: options?.models || defaultModels,
     timeoutMs: options?.timeoutMs || 60000,
     maxRetries: options?.maxRetries || 3,

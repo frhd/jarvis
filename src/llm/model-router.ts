@@ -27,7 +27,7 @@ const DEFAULT_FALLBACK_CONFIG: FallbackConfig = {
   primary: { provider: 'ollama', model: 'mistral' },
   fallbacks: [
     { provider: 'openai', model: 'gpt-4o-mini' },
-    { provider: 'anthropic', model: 'claude-3-5-haiku-20241022' },
+    { provider: 'anthropic', model: 'claude-haiku-4-5' },
     { provider: 'gemini', model: 'gemini-2.0-flash' },
   ],
   maxAttempts: 3,

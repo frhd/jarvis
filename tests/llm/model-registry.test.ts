@@ -166,9 +166,9 @@ const mockOpenAIModels: ModelConfig[] = [
 
 const mockAnthropicModels: ModelConfig[] = [
   {
-    id: 'claude-3-5-haiku-20241022',
+    id: 'claude-haiku-4-5',
     provider: 'anthropic',
-    displayName: 'Claude 3.5 Haiku',
+    displayName: 'Claude Haiku 4.5',
     contextWindow: 200000,
     maxOutputTokens: 8192,
     costPer1kInput: 1.0,
