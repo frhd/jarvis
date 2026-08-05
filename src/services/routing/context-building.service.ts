@@ -233,8 +233,13 @@ export class ContextBuildingService {
       },
     ];
 
-    // Add conversation history (reversed to chronological order)
-    const recent = history.slice(0, contextWindowSize).reverse();
+    // Add conversation history (reversed to chronological order). Ingestion
+    // persists the current message before processing, so freshly fetched
+    // history already contains it — exclude it to avoid a duplicated user turn.
+    const recent = history
+      .filter((m) => m.id !== currentMessage.id)
+      .slice(0, contextWindowSize)
+      .reverse();
 
     for (const msg of recent) {
       if (!msg.text) continue;

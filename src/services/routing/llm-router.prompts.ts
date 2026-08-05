@@ -119,8 +119,14 @@ You have full access to the local machine - you can read/write files, execute sh
     },
   ];
 
-  // Add conversation history (last N messages, in chronological order)
-  const recent = history.slice(0, CONVERSATION_HISTORY_LIMIT).reverse();
+  // Add conversation history (last N messages, in chronological order).
+  // Ingestion persists the current message before processing, so freshly
+  // fetched history already contains it — exclude it to avoid a duplicated
+  // user turn.
+  const recent = history
+    .filter((msg) => msg.id !== currentMessage.id)
+    .slice(0, CONVERSATION_HISTORY_LIMIT)
+    .reverse();
 
   for (const msg of recent) {
     if (!msg.text) continue;

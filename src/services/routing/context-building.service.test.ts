@@ -227,9 +227,9 @@ describe('ContextBuildingService', () => {
   describe('buildChatMessages', () => {
     it('should build chat messages with system prompt', async () => {
       const history: Message[] = [
-        createMockMessage({ text: 'Previous message', isBot: true }),
+        createMockMessage({ id: 'msg-prev', text: 'Previous message', isBot: true }),
       ];
-      const currentMessage = createMockMessage({ text: 'Current message' });
+      const currentMessage = createMockMessage({ id: 'msg-current', text: 'Current message' });
       const sender = createMockSender();
 
       const messages = await service.buildChatMessages(
@@ -279,11 +279,11 @@ describe('ContextBuildingService', () => {
 
     it('should reverse history to chronological order', async () => {
       const history: Message[] = [
-        createMockMessage({ text: 'Message 3', isBot: false }),
-        createMockMessage({ text: 'Message 2', isBot: true }),
-        createMockMessage({ text: 'Message 1', isBot: false }),
+        createMockMessage({ id: 'msg-3', text: 'Message 3', isBot: false }),
+        createMockMessage({ id: 'msg-2', text: 'Message 2', isBot: true }),
+        createMockMessage({ id: 'msg-1', text: 'Message 1', isBot: false }),
       ];
-      const currentMessage = createMockMessage({ text: 'Current' });
+      const currentMessage = createMockMessage({ id: 'msg-current', text: 'Current' });
 
       const messages = await service.buildChatMessages(
         history,
@@ -300,10 +300,10 @@ describe('ContextBuildingService', () => {
 
     it('should skip messages without text', async () => {
       const history: Message[] = [
-        createMockMessage({ text: null }),
-        createMockMessage({ text: 'Valid message' }),
+        createMockMessage({ id: 'msg-no-text', text: null }),
+        createMockMessage({ id: 'msg-valid', text: 'Valid message' }),
       ];
-      const currentMessage = createMockMessage({ text: 'Current' });
+      const currentMessage = createMockMessage({ id: 'msg-current', text: 'Current' });
 
       const messages = await service.buildChatMessages(
         history,
@@ -318,9 +318,9 @@ describe('ContextBuildingService', () => {
 
     it('should respect context window size', async () => {
       const history: Message[] = Array.from({ length: 20 }, (_, i) =>
-        createMockMessage({ text: `Message ${i + 1}` })
+        createMockMessage({ id: `msg-${i + 1}`, text: `Message ${i + 1}` })
       );
-      const currentMessage = createMockMessage({ text: 'Current' });
+      const currentMessage = createMockMessage({ id: 'msg-current', text: 'Current' });
 
       const messages = await service.buildChatMessages(
         history,
@@ -332,6 +332,27 @@ describe('ContextBuildingService', () => {
 
       // system + 5 history + current = 7
       expect(messages).toHaveLength(7);
+    });
+
+    it('should not duplicate the current message when history already contains it', async () => {
+      service = new ContextBuildingService(null, null);
+      const currentMessage = createMockMessage({ id: 'msg-current', text: 'Current message' });
+      // Ingestion persists the message before processing, so the freshly
+      // fetched history contains it as the newest entry (descending order)
+      const history: Message[] = [
+        currentMessage,
+        createMockMessage({ id: 'msg-old', text: 'Earlier message', isBot: true }),
+      ];
+
+      const messages = await service.buildChatMessages(
+        history,
+        currentMessage,
+        null,
+        'System'
+      );
+
+      expect(messages.filter((m) => m.content === 'Current message')).toHaveLength(1);
+      expect(messages).toHaveLength(3); // system + earlier + current
     });
   });
 });

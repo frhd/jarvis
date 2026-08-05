@@ -994,10 +994,10 @@ describe('LLMRouterService', () => {
     });
 
     it('should include conversation history in fallback', async () => {
-      const message = createMockMessage({ text: 'Follow up question' });
+      const message = createMockMessage({ id: 'msg-current', text: 'Follow up question' });
       const conversationHistory: Message[] = [
-        createMockMessage({ text: 'Previous question', isBot: false }),
-        createMockMessage({ text: 'Previous answer', isBot: true }),
+        createMockMessage({ id: 'msg-q', text: 'Previous question', isBot: false }),
+        createMockMessage({ id: 'msg-a', text: 'Previous answer', isBot: true }),
       ];
 
       await service.fallbackToOllama(message, conversationHistory);
@@ -1077,10 +1077,10 @@ describe('LLMRouterService', () => {
     });
 
     it('should skip messages without text in conversation history', async () => {
-      const message = createMockMessage({ text: 'Current message' });
+      const message = createMockMessage({ id: 'msg-current', text: 'Current message' });
       const conversationHistory: Message[] = [
-        createMockMessage({ text: null as any, isBot: false }),
-        createMockMessage({ text: 'Valid message', isBot: false }),
+        createMockMessage({ id: 'msg-no-text', text: null as any, isBot: false }),
+        createMockMessage({ id: 'msg-valid', text: 'Valid message', isBot: false }),
       ];
 
       await service.fallbackToOllama(message, conversationHistory);
