@@ -216,7 +216,12 @@ export class ContextManagerService {
     if (includeRecentMessages && chatId) {
       try {
         const retrievalStart = Date.now();
-        const messageItems = await this.getRecentMessageItems(chatId, recentMessageCount, query);
+        const messageItems = await this.getRecentMessageItems(
+          chatId,
+          recentMessageCount,
+          query,
+          options.messageId
+        );
         timings.retrievalMs += Date.now() - retrievalStart;
         allItems.push(...messageItems);
         sources.messages = messageItems.length;
@@ -361,9 +366,16 @@ export class ContextManagerService {
   private async getRecentMessageItems(
     chatId: string,
     limit: number,
-    query: string
+    query: string,
+    excludeMessageId?: string
   ): Promise<ContextItem[]> {
-    const messages = await this.messageRepo.findRecentByChatId(chatId, limit);
+    const fetched = await this.messageRepo.findRecentByChatId(chatId, limit);
+
+    // Ingestion persists the current message before processing, so it comes
+    // back as the newest entry — exclude it to avoid duplicating it in context
+    const messages = excludeMessageId
+      ? fetched.filter((m) => m.id !== excludeMessageId)
+      : fetched;
 
     if (messages.length === 0) {
       return [];

@@ -238,6 +238,23 @@ describe('ContextManagerService', () => {
       expect(result.context).toContain('Recent message');
     });
 
+    it('should exclude the current message from recent messages when messageId is provided', async () => {
+      // Ingestion persists the current message before processing, so it comes
+      // back as the newest entry of findRecentByChatId
+      mockMessageRepo.findRecentByChatId.mockResolvedValue([
+        { id: 'msg-current', text: 'Current question from user', isBot: false, createdAt: new Date() },
+        { id: 'msg-old', text: 'Earlier message', isBot: false, createdAt: new Date() },
+      ]);
+
+      const result = await service.buildContext('test', {
+        chatId: 'chat-1',
+        messageId: 'msg-current',
+      });
+
+      expect(result.context).not.toContain('Current question from user');
+      expect(result.context).toContain('Earlier message');
+    });
+
     it('should still include preferences when senderId is provided', async () => {
       mockUserPrefService.buildContextString.mockResolvedValue('Language: English');
 

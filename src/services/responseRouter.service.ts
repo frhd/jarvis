@@ -480,7 +480,8 @@ export class ResponseRouterService implements IResponseRouter {
     const simpleContext = await this.contextBuilding.buildConversationContext(
       conversationHistory,
       sender,
-      this.config.contextWindowSize
+      this.config.contextWindowSize,
+      message.id
     );
 
     logger.debug('[Router] Built simple context', {

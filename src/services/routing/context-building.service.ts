@@ -82,14 +82,20 @@ export class ContextBuildingService {
    * @param history - Conversation history (descending order, newest first)
    * @param sender - Sender information for personalization
    * @param contextWindowSize - Number of messages to include (default: 10)
+   * @param excludeMessageId - Message ID to exclude (the current message, which
+   *   ingestion has already persisted and therefore appears in fetched history)
    */
   async buildConversationContext(
     history: Message[],
     sender: Sender | null,
-    contextWindowSize: number = 10
+    contextWindowSize: number = 10,
+    excludeMessageId?: string
   ): Promise<string> {
     // Build conversation context string
-    let context = this.buildContextForDisplay(history, contextWindowSize);
+    const filteredHistory = excludeMessageId
+      ? history.filter((m) => m.id !== excludeMessageId)
+      : history;
+    let context = this.buildContextForDisplay(filteredHistory, contextWindowSize);
 
     // Add user preferences for personalization
     const personalizationParts: string[] = [];

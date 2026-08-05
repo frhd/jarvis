@@ -184,6 +184,21 @@ describe('ContextBuildingService', () => {
 
       expect(lines).toHaveLength(5);
     });
+
+    it('should exclude the current message from history when excludeMessageId is provided', async () => {
+      service = new ContextBuildingService(null, null);
+      // Ingestion persists the current message before processing, so freshly
+      // fetched history contains it as the newest entry
+      const history: Message[] = [
+        createMockMessage({ id: 'msg-current', text: 'Current message' }),
+        createMockMessage({ id: 'msg-old', text: 'Earlier message', isBot: true }),
+      ];
+
+      const context = await service.buildConversationContext(history, null, 10, 'msg-current');
+
+      expect(context).not.toContain('Current message');
+      expect(context).toContain('Earlier message');
+    });
   });
 
   describe('buildRAGContext', () => {
